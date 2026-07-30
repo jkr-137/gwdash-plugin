@@ -12,8 +12,12 @@ include(FetchContent)
 # compile the plugin base sources directly.
 #
 # Toolbox does not promise ABI stability between releases, so the tag is pinned
-# and bumped deliberately. See .github/workflows/build.yml for the scheduled
-# build that flags upstream breakage.
+# and bumped deliberately. See .github/workflows/build.yml for the weekly build
+# that flags upstream breakage.
+#
+# Keep this as a quoted string in CMake code. Passing the same value unquoted
+# via cmake -D...=8.32_Release truncates it to "8" (CMake's command-line
+# parser stops at the first non-numeric character after a leading number).
 set(GWDASH_TOOLBOX_TAG "8.32_Release" CACHE STRING "GWToolbox++ git tag to build the plugin against")
 
 FetchContent_Declare(gwtoolbox
