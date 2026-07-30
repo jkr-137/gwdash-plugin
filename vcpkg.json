@@ -1,0 +1,6 @@
+{
+  "name": "gwdash-plugin",
+  "version-string": "0.1.0",
+  "description": "GWDash price overlay plugin for GWToolbox++",
+  "dependencies": ["glaze"]
+}
