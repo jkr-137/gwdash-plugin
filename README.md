@@ -1,1 +1,95 @@
-# gwdash-plugin
+# GWDash plugin for GWToolbox++
+
+In-game overlay for the three prices [GWDash](https://gwdash.com) tracks: **Ectoplasm**, **Armbrace of Truth** and **Black Dye**. Freely movable, updates itself, installs with one line.
+
+```powershell
+irm https://gwdash.com/install.ps1 | iex
+```
+
+Then start Guild Wars. If the overlay does not appear, enable it once under **Toolbox → Settings → Plugins → GWDash.dll → Load**.
+
+Toggle with `/gwdash`. Also: `/gwdash refresh`, `/gwdash prices`, `/gwdash update`, `/gwdash version`.
+
+## What you get
+
+- Three price rows matching the dashboard: `Ecto 5.6k`, `Arms 27e`, `Black Dye 18.4k`
+- Compact single-line mode, adjustable font scale and background
+- Position and size remembered by Toolbox (drag the window)
+- Auto-update: a new release is downloaded in the background and activates the next time you start Guild Wars
+
+## Requirements
+
+- Windows, 32-bit Guild Wars (the only kind that exists)
+- [GWToolbox++](https://www.gwtoolbox.com/) with the **Plugins** module enabled (Settings → *Enable the following features*)
+- Built and tested against Toolbox `8.32_Release`
+
+## Manual install
+
+1. Download `GWDash.dll` and `GWDash.core.dll` from the [latest release](https://github.com/jkr-137/gwdash-plugin/releases/latest).
+2. Put them here:
+
+   ```
+   %USERPROFILE%\Documents\GWToolboxpp\<COMPUTERNAME>\plugins\GWDash.dll
+   %USERPROFILE%\Documents\GWToolboxpp\<COMPUTERNAME>\plugins\GWDash\GWDash.core.dll
+   ```
+
+   `scripts/open-plugins-folder.bat` opens that folder for you.
+3. Close Guild Wars first if it is running — Windows locks a loaded DLL.
+4. Start the game, then **Settings → Plugins → Load**.
+
+Uninstall:
+
+```powershell
+iex "& { $(irm https://gwdash.com/install.ps1) } -Uninstall"
+```
+
+## Where the prices come from
+
+The plugin polls a static JSON snapshot at `https://data.gwdash.com/prices.json`. That file is written by the GWDash Cloudflare Worker every two minutes into a public R2 bucket and served from Cloudflare's CDN. The request never hits a Worker and never touches D1, so plugin traffic does not consume the free-tier request budget.
+
+If the CDN is unreachable, the plugin falls back to `https://gwdash.com/api/plugin/prices` (edge-cached, ETag).
+
+## Safety notes
+
+- **ArenaNet does not permit third-party plugins.** Toolbox itself prints that warning the first time any plugin is loaded. Use at your own risk.
+- The DLL is currently **unsigned**. Windows Defender occasionally quarantines unsigned Toolbox plugins — if Load fails with a virus error, allow the file and try again.
+- While any plugin is loaded, Toolbox refuses to write a crash dump. Do not report Toolbox crashes that happen with GWDash loaded.
+
+## Auto-update
+
+`GWDash.dll` is a tiny loader. The real plugin lives one directory down as `GWDash.core.dll`. On start the loader swaps in anything waiting in `GWDash/pending/`, then forwards to the payload. That is how a new version can install itself without fighting the Windows file lock on the DLL Toolbox has loaded.
+
+The loader itself cannot be replaced this way. When a release also changes the loader, the overlay asks you to re-run the installer once.
+
+## Building from source
+
+Needs Visual Studio 2022 (toolset v143+) with the **Desktop development with C++** workload, CMake ≥ 3.29, and [vcpkg](https://vcpkg.io).
+
+```powershell
+$env:VCPKG_ROOT = "C:\path\to\vcpkg"
+cmake --preset windows-x86 -DGWDASH_VERSION=0.1.0
+cmake --build --preset relwithdebinfo
+```
+
+Outputs land in `bin/RelWithDebInfo/`:
+
+| File | Role |
+|------|------|
+| `GWDash.dll` | Loader stub Toolbox sees |
+| `GWDash.core.dll` | Overlay, price client, updater |
+
+The build pulls [GWToolbox++](https://github.com/gwdevhub/GWToolboxpp) at the pinned tag `8.32_Release` via FetchContent and reuses its ImGui (with Toolbox's `imconfig.h` — required, the struct layouts differ from stock ImGui), plugin base sources and prebuilt `gwca.lib`. It does **not** build `GWToolboxdll` itself.
+
+## Project layout
+
+```
+cmake/ToolboxSdk.cmake   FetchContent + plugin_base stand-in
+compat/                  stubs so we can compile Toolbox sources without linking GWToolboxdll
+loader/Loader.cpp        GWDash.dll
+src/                     GWDash.core.dll
+.github/workflows/       CI build + tagged releases
+```
+
+## License
+
+MIT. GWToolbox++ is MIT as well; this plugin is not affiliated with ArenaNet or the GWToolbox++ project.

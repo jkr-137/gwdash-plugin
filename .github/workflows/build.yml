@@ -1,0 +1,87 @@
+name: Build
+
+on:
+  push:
+    branches: [main, "cursor/**"]
+  pull_request:
+  # Weekly rebuild against the pinned Toolbox tag catches upstream ABI breakage
+  # before a release ships a dead plugin. Toolbox releases roughly weekly and
+  # does not promise plugin ABI stability.
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    # windows-2022 ships VS 17 (toolset v143), which is what Toolbox requires at
+    # minimum. windows-latest may move to a newer VS whose generator name differs.
+    runs-on: windows-2022
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MSVC (x86)
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: "2b65c20fc66eda893aa15a15a453c3cf09500b19"
+
+      - name: Configure
+        run: |
+          cmake -S . -B build -G "Visual Studio 17 2022" -A Win32 `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET=x86-windows-static `
+            -DGWDASH_VERSION="0.0.0-ci" `
+            -DGWDASH_TOOLBOX_TAG=8.32_Release
+
+      - name: Build
+        run: cmake --build build --config RelWithDebInfo --parallel
+
+      - name: Collect artifacts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item bin/RelWithDebInfo/GWDash.dll dist/
+          Copy-Item bin/RelWithDebInfo/GWDash.core.dll dist/
+          Get-FileHash dist/*.dll -Algorithm SHA256 |
+            ForEach-Object { "$($_.Hash.ToLowerInvariant())  $($_.Path | Split-Path -Leaf)" } |
+            Set-Content -Encoding ascii dist/SHA256SUMS
+          Get-Content dist/SHA256SUMS
+          Get-ChildItem dist | Format-Table Name, Length
+
+      - name: Verify exports
+        shell: pwsh
+        run: |
+          # Both DLLs must export the undecorated ToolboxPluginInstance that
+          # Toolbox resolves with GetProcAddress.
+          $dumpbin = Join-Path $env:VCToolsInstallDir "bin\Hostx86\x86\dumpbin.exe"
+          if (-not (Test-Path $dumpbin)) {
+            $dumpbin = (Get-ChildItem "C:\Program Files*\Microsoft Visual Studio" -Recurse -Filter dumpbin.exe -ErrorAction SilentlyContinue |
+              Where-Object { $_.FullName -match '\\x86\\dumpbin\.exe$' } |
+              Select-Object -First 1).FullName
+          }
+          if (-not $dumpbin) { throw "dumpbin.exe not found" }
+
+          foreach ($dll in @("dist/GWDash.dll", "dist/GWDash.core.dll")) {
+            $exports = & $dumpbin /exports $dll | Out-String
+            if ($exports -notmatch "ToolboxPluginInstance") {
+              throw "$dll is missing the ToolboxPluginInstance export"
+            }
+            Write-Host "$dll exports ToolboxPluginInstance"
+          }
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: gwdash-plugin-windows-x86
+          path: dist/
+          if-no-files-found: error
