@@ -1,0 +1,7 @@
+#pragma once
+
+// Generated from src/Version.h.in by CMake.
+
+#define GWDASH_VERSION "@GWDASH_VERSION@"
+#define GWDASH_UPDATE_REPO "@GWDASH_UPDATE_REPO@"
+#define GWDASH_USER_AGENT "gwdash-plugin/" GWDASH_VERSION
