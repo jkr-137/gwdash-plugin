@@ -14,8 +14,8 @@ namespace gwdash::http {
     };
 
     /**
-     * Blocking HTTPS GET. `etag` is sent as If-None-Match when non-empty, so an
-     * unchanged snapshot comes back as 304 with no body.
+     * Blocking HTTPS GET to an allowlisted host. `etag` is sent as If-None-Match
+     * when it is non-empty and free of CR/LF/control characters (else ignored).
      * Returns false only on transport errors; check `out.status` otherwise.
      */
     bool Get(const std::wstring& url,
@@ -24,7 +24,7 @@ namespace gwdash::http {
              Response& out,
              std::string& error);
 
-    /** Blocking download to `destination`, creating parent directories. */
+    /** Blocking HTTPS download to an allowlisted host; creates parent directories. */
     bool Download(const std::wstring& url,
                   const std::filesystem::path& destination,
                   std::size_t max_bytes,

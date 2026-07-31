@@ -59,6 +59,10 @@ If the CDN is unreachable, the plugin falls back to `https://gwdash.com/api/plug
 
 `GWDash.dll` is a tiny loader. The real plugin lives one directory down as `GWDash.core.dll`. On start the loader swaps in anything waiting in `GWDash/pending/`, then forwards to the payload. That is how a new version can install itself without fighting the Windows file lock on the DLL Toolbox has loaded.
 
+The updater only talks HTTPS to an allowlisted set of hosts (`api.github.com`, `github.com`, `objects.githubusercontent.com`, `release-assets.githubusercontent.com`, plus the price CDN hosts). ETags from the price API are sanitized before being echoed back as `If-None-Match` (no CR/LF injection). Downloads are SHA-256-checked against `SHA256SUMS` from the same release.
+
+**Trust model today:** checksums prove integrity against bit-flip/CDN corruption, not authenticity against a compromised GitHub account/CI (the SUMS file and the DLL share the same publisher). **Planned hardening:** Authenticode-sign both DLLs and verify the signature before staging/`LoadLibrary`, or ship an ed25519-signed update manifest with a public key baked into the binary. Until then, treat a compromised release repo as full RCE in Guild Wars — keep the GitHub org/2FA/CI secrets locked down.
+
 The loader itself cannot be replaced this way. When a release also changes the loader, the overlay asks you to re-run the installer once.
 
 ## Building from source
