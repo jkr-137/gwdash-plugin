@@ -98,6 +98,38 @@ namespace {
         Handle request;
     };
 
+    bool IsAllowedHost(const std::wstring& host)
+    {
+        static constexpr const wchar_t* kAllowed[] = {
+            L"api.github.com",
+            L"github.com",
+            L"objects.githubusercontent.com",
+            L"release-assets.githubusercontent.com",
+            L"data.gwdash.com",
+            L"gwdash.com",
+        };
+        for (const wchar_t* allowed : kAllowed) {
+            if (_wcsicmp(host.c_str(), allowed) == 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Reject CR/LF/controls so a malicious ETag cannot inject request headers. */
+    bool IsSafeEtag(const std::string& etag)
+    {
+        if (etag.empty() || etag.size() > 200) {
+            return false;
+        }
+        for (const unsigned char ch : etag) {
+            if (ch < 0x20 || ch == 0x7F) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     bool OpenRequest(const std::wstring& url, const std::string& etag, Request& out, std::string& error)
     {
         std::array<wchar_t, 256> host{};
@@ -112,6 +144,17 @@ namespace {
 
         if (!WinHttpCrackUrl(url.c_str(), static_cast<DWORD>(url.size()), 0, &components)) {
             error = LastErrorMessage("WinHttpCrackUrl");
+            return false;
+        }
+
+        if (components.nScheme != INTERNET_SCHEME_HTTPS) {
+            error = "refusing non-HTTPS URL";
+            return false;
+        }
+
+        const std::wstring host_name(host.data());
+        if (!IsAllowedHost(host_name)) {
+            error = "refusing download from unexpected host";
             return false;
         }
 
@@ -132,16 +175,16 @@ namespace {
             return false;
         }
 
-        const DWORD flags = components.nScheme == INTERNET_SCHEME_HTTPS ? WINHTTP_FLAG_SECURE : 0;
         out.request = Handle(WinHttpOpenRequest(out.connection.get(), L"GET", path.data(), nullptr,
-                                                WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, flags));
+                                                WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES,
+                                                WINHTTP_FLAG_SECURE));
         if (!out.request) {
             error = LastErrorMessage("WinHttpOpenRequest");
             return false;
         }
 
         std::wstring headers = L"Accept: application/json\r\n";
-        if (!etag.empty()) {
+        if (IsSafeEtag(etag)) {
             headers += L"If-None-Match: " + Widen(etag) + L"\r\n";
         }
         WinHttpAddRequestHeaders(out.request.get(), headers.c_str(), static_cast<DWORD>(headers.size()),
@@ -206,7 +249,8 @@ namespace gwdash::http {
         }
 
         out.status = QueryStatus(request.request.get());
-        out.etag = QueryEtag(request.request.get());
+        const std::string raw_etag = QueryEtag(request.request.get());
+        out.etag = IsSafeEtag(raw_etag) ? raw_etag : std::string{};
         out.body.clear();
 
         std::vector<char> chunk(READ_CHUNK);
