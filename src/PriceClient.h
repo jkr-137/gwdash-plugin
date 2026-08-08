@@ -29,7 +29,7 @@ namespace gwdash {
      * used when that fails.
      */
     class PriceClient {
-    public:
+      public:
         PriceClient() = default;
         ~PriceClient();
 
@@ -51,7 +51,7 @@ namespace gwdash {
 
         [[nodiscard]] PriceState State() const;
 
-    private:
+      private:
         void Run();
         void LoadCache();
         bool FetchOnce(const std::wstring& url, const char* source, std::string& etag);
@@ -73,4 +73,4 @@ namespace gwdash {
         std::string primary_etag_;
         std::string fallback_etag_;
     };
-}
+} // namespace gwdash

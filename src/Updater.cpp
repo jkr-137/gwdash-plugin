@@ -32,22 +32,18 @@ namespace gwdash::github {
         bool prerelease = false;
         std::vector<Asset> assets;
     };
-}
+} // namespace gwdash::github
 
-template <>
-struct glz::meta<gwdash::github::Asset> {
+template <> struct glz::meta<gwdash::github::Asset> {
     using T = gwdash::github::Asset;
-    static constexpr auto value = object("name", &T::name, "browser_download_url", &T::browser_download_url);
+    static constexpr auto value =
+        object("name", &T::name, "browser_download_url", &T::browser_download_url);
 };
 
-template <>
-struct glz::meta<gwdash::github::Release> {
+template <> struct glz::meta<gwdash::github::Release> {
     using T = gwdash::github::Release;
-    static constexpr auto value = object(
-        "tag_name", &T::tag_name,
-        "draft", &T::draft,
-        "prerelease", &T::prerelease,
-        "assets", &T::assets);
+    static constexpr auto value = object("tag_name", &T::tag_name, "draft", &T::draft, "prerelease",
+                                         &T::prerelease, "assets", &T::assets);
 };
 
 namespace {
@@ -77,13 +73,14 @@ namespace {
         if (value.empty()) {
             return {};
         }
-        const int needed = MultiByteToWideChar(CP_UTF8, 0, value.data(), static_cast<int>(value.size()),
-                                               nullptr, 0);
+        const int needed = MultiByteToWideChar(CP_UTF8, 0, value.data(),
+                                               static_cast<int>(value.size()), nullptr, 0);
         if (needed <= 0) {
             return {};
         }
         std::wstring out(static_cast<size_t>(needed), L'\0');
-        MultiByteToWideChar(CP_UTF8, 0, value.data(), static_cast<int>(value.size()), out.data(), needed);
+        MultiByteToWideChar(CP_UTF8, 0, value.data(), static_cast<int>(value.size()), out.data(),
+                            needed);
         return out;
     }
 
@@ -93,9 +90,8 @@ namespace {
         while (!value.empty() && is_space(static_cast<unsigned char>(value.back()))) {
             value.pop_back();
         }
-        const auto begin = std::ranges::find_if_not(value, [&](const char c) {
-            return is_space(static_cast<unsigned char>(c));
-        });
+        const auto begin = std::ranges::find_if_not(
+            value, [&](const char c) { return is_space(static_cast<unsigned char>(c)); });
         value.erase(value.begin(), begin);
         return value;
     }
@@ -150,7 +146,8 @@ namespace {
         return {};
     }
 
-    const gwdash::github::Asset* FindAsset(const gwdash::github::Release& release, const std::string& name)
+    const gwdash::github::Asset* FindAsset(const gwdash::github::Release& release,
+                                           const std::string& name)
     {
         for (const auto& asset : release.assets) {
             if (asset.name == name) {
@@ -159,7 +156,7 @@ namespace {
         }
         return nullptr;
     }
-}
+} // namespace
 
 namespace gwdash {
     Updater::~Updater()
@@ -267,7 +264,8 @@ namespace gwdash {
             return;
         }
         if (response.status != 200) {
-            SetStatus(UpdateStatus::Failed, "Update check failed: HTTP " + std::to_string(response.status));
+            SetStatus(UpdateStatus::Failed,
+                      "Update check failed: HTTP " + std::to_string(response.status));
             return;
         }
         if (!response.etag.empty()) {
@@ -281,7 +279,8 @@ namespace gwdash {
             return;
         }
         if (release.draft || release.prerelease) {
-            SetStatus(UpdateStatus::UpToDate, "Latest GitHub release is draft/prerelease - ignoring.");
+            SetStatus(UpdateStatus::UpToDate,
+                      "Latest GitHub release is draft/prerelease - ignoring.");
             return;
         }
 
@@ -299,7 +298,8 @@ namespace gwdash {
 
         if (!auto_install_.load()) {
             SetStatus(UpdateStatus::Available, "Version " + latest + " is available.");
-            Notify("GWDash " + latest + " is available. Enable auto-update or run the installer again.");
+            Notify("GWDash " + latest +
+                   " is available. Enable auto-update or run the installer again.");
             return;
         }
 
@@ -307,7 +307,8 @@ namespace gwdash {
         const fs::path pending_dir = PendingDirectory();
         const std::string staged_version = ReadFile(pending_dir / L"version.txt", 64);
         if (StripVersionPrefix(staged_version) == latest) {
-            SetStatus(UpdateStatus::Staged, "Version " + latest + " is ready - restart Guild Wars to apply.");
+            SetStatus(UpdateStatus::Staged,
+                      "Version " + latest + " is ready - restart Guild Wars to apply.");
             return;
         }
 
@@ -385,7 +386,8 @@ namespace gwdash {
         std::error_code ec;
         fs::path download = pending_dir / CORE_ASSET;
         download += L".part";
-        if (!http::Download(Widen(core->browser_download_url), download, MAX_PAYLOAD_BYTES, error)) {
+        if (!http::Download(Widen(core->browser_download_url), download, MAX_PAYLOAD_BYTES,
+                            error)) {
             SetStatus(UpdateStatus::Failed, "Download failed: " + error);
             return;
         }
@@ -418,8 +420,10 @@ namespace gwdash {
             state_.loader_outdated = loader_outdated;
         }
 
-        SetStatus(UpdateStatus::Staged, "Version " + latest + " is ready - restart Guild Wars to apply.");
-        Notify("GWDash " + latest + " downloaded. It will be active the next time you start Guild Wars.");
+        SetStatus(UpdateStatus::Staged,
+                  "Version " + latest + " is ready - restart Guild Wars to apply.");
+        Notify("GWDash " + latest +
+               " downloaded. It will be active the next time you start Guild Wars.");
         if (loader_outdated) {
             Notify("This release also updates the loader. Run the installer once to pick it up: "
                    "irm https://gwdash.com/install.ps1 | iex");
@@ -433,9 +437,8 @@ namespace gwdash {
         for (;;) {
             {
                 std::unique_lock lock(wait_mutex_);
-                wait_cv_.wait_for(lock, std::chrono::seconds(wait_seconds), [this] {
-                    return stop_.load() || check_now_.exchange(false);
-                });
+                wait_cv_.wait_for(lock, std::chrono::seconds(wait_seconds),
+                                  [this] { return stop_.load() || check_now_.exchange(false); });
             }
             if (stop_.load()) {
                 break;
@@ -447,4 +450,4 @@ namespace gwdash {
 
         finished_ = true;
     }
-}
+} // namespace gwdash

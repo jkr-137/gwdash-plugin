@@ -38,7 +38,7 @@ namespace gwdash {
      * start, which is the only moment nothing holds a file lock on it.
      */
     class Updater {
-    public:
+      public:
         Updater() = default;
         ~Updater();
 
@@ -60,7 +60,7 @@ namespace gwdash {
         /** Moves queued chat messages out; call from the game thread. */
         std::vector<std::string> TakeNotifications();
 
-    private:
+      private:
         void Run();
         void CheckOnce();
         void Notify(std::string message);
@@ -82,4 +82,4 @@ namespace gwdash {
         std::atomic_bool running_{false};
         std::atomic_bool auto_install_{true};
     };
-}
+} // namespace gwdash

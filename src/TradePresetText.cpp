@@ -23,11 +23,10 @@ namespace {
         if (head != "wtb" && head != "wts" && head != "wtt") {
             return false;
         }
-        return message.size() == 3 ||
-               std::isspace(static_cast<unsigned char>(message[3])) ||
+        return message.size() == 3 || std::isspace(static_cast<unsigned char>(message[3])) ||
                message[3] == ':';
     }
-}
+} // namespace
 
 namespace gwdash {
     std::string SanitizePresetName(const std::string_view raw)
@@ -60,8 +59,7 @@ namespace gwdash {
         out.reserve(std::min(raw.size(), MAX_PRESET_MESSAGE_LEN));
 
         std::size_t start = 0;
-        while (start < raw.size() &&
-               std::isspace(static_cast<unsigned char>(raw[start]))) {
+        while (start < raw.size() && std::isspace(static_cast<unsigned char>(raw[start]))) {
             ++start;
         }
 
@@ -103,4 +101,4 @@ namespace gwdash {
         }
         return line;
     }
-}
+} // namespace gwdash

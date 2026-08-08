@@ -20,7 +20,7 @@ namespace {
             ++failures;
         }
     }
-}
+} // namespace
 
 int main()
 {

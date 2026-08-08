@@ -15,8 +15,8 @@ namespace {
     {
         std::vector<wchar_t> buffer(MAX_PATH);
         for (;;) {
-            const DWORD length = GetModuleFileNameW(plugin_handle, buffer.data(),
-                                                    static_cast<DWORD>(buffer.size()));
+            const DWORD length =
+                GetModuleFileNameW(plugin_handle, buffer.data(), static_cast<DWORD>(buffer.size()));
             if (length == 0) {
                 return fs::current_path();
             }
@@ -26,7 +26,7 @@ namespace {
             buffer.resize(buffer.size() * 2);
         }
     }
-}
+} // namespace
 
 namespace gwdash {
     const fs::path& DataDirectory()
@@ -106,4 +106,4 @@ namespace gwdash {
         }
         return true;
     }
-}
+} // namespace gwdash

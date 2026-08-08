@@ -49,8 +49,8 @@ namespace {
     {
         std::vector<wchar_t> buffer(MAX_PATH);
         for (;;) {
-            const DWORD length = GetModuleFileNameW(plugin_handle, buffer.data(),
-                                                    static_cast<DWORD>(buffer.size()));
+            const DWORD length =
+                GetModuleFileNameW(plugin_handle, buffer.data(), static_cast<DWORD>(buffer.size()));
             if (length == 0) {
                 return {};
             }
@@ -152,11 +152,12 @@ namespace {
      * returning nullptr from ToolboxPluginInstance is not an option.
      */
     class FallbackPlugin final : public ToolboxPlugin {
-    public:
+      public:
         [[nodiscard]] const char* Name() const override { return "GWDash"; }
         [[nodiscard]] bool HasSettings() const override { return true; }
 
-        void Initialize(ImGuiContext* ctx, const ImGuiAllocFns allocator_fns, const HMODULE toolbox_dll) override
+        void Initialize(ImGuiContext* ctx, const ImGuiAllocFns allocator_fns,
+                        const HMODULE toolbox_dll) override
         {
             ToolboxPlugin::Initialize(ctx, allocator_fns, toolbox_dll);
             if (!reported) {
@@ -164,7 +165,8 @@ namespace {
                 Debug(load_error.empty() ? "payload failed to load" : load_error);
                 // Visible once without needing GWCA WriteChat in the loader.
                 MessageBoxA(nullptr,
-                            load_error.empty() ? "GWDash.core.dll failed to load." : load_error.c_str(),
+                            load_error.empty() ? "GWDash.core.dll failed to load."
+                                               : load_error.c_str(),
                             "GWDash", MB_OK | MB_ICONWARNING);
             }
         }
@@ -177,10 +179,10 @@ namespace {
             ImGui::TextWrapped("Loader version %s", GWDASH_VERSION);
         }
 
-    private:
+      private:
         bool reported = false;
     };
-}
+} // namespace
 
 DLLAPI ToolboxPlugin* ToolboxPluginInstance()
 {
@@ -207,9 +209,11 @@ DLLAPI ToolboxPlugin* ToolboxPluginInstance()
     }
 
     using InstanceFn = ToolboxPlugin* (*)();
-    const auto entry = reinterpret_cast<InstanceFn>(GetProcAddress(payload, "ToolboxPluginInstance"));
+    const auto entry =
+        reinterpret_cast<InstanceFn>(GetProcAddress(payload, "ToolboxPluginInstance"));
     if (!entry) {
-        load_error = "GWDash.core.dll has no ToolboxPluginInstance export - the install looks corrupt.";
+        load_error =
+            "GWDash.core.dll has no ToolboxPluginInstance export - the install looks corrupt.";
         FreeLibrary(payload);
         return instance;
     }
@@ -220,8 +224,7 @@ DLLAPI ToolboxPlugin* ToolboxPluginInstance()
         // The payload therefore has to tolerate repeated Initialize/Terminate
         // cycles if the user unloads and reloads us from the Plugins panel.
         instance = forwarded;
-    }
-    else {
+    } else {
         load_error = "GWDash.core.dll returned no plugin instance.";
         FreeLibrary(payload);
     }

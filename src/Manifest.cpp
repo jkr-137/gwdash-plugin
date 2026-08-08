@@ -12,14 +12,12 @@ extern "C" {
 
 #include "UpdatePublicKey.h"
 
-template <>
-struct glz::meta<gwdash::ManifestFile> {
+template <> struct glz::meta<gwdash::ManifestFile> {
     using T = gwdash::ManifestFile;
     static constexpr auto value = object("name", &T::name, "sha256", &T::sha256);
 };
 
-template <>
-struct glz::meta<gwdash::UpdateManifest> {
+template <> struct glz::meta<gwdash::UpdateManifest> {
     using T = gwdash::UpdateManifest;
     static constexpr auto value = object("v", &T::v, "version", &T::version, "files", &T::files);
 };
@@ -93,8 +91,8 @@ namespace gwdash {
         return true;
     }
 
-    bool VerifyManifestSignature(const std::string_view signing_bytes, const std::string_view sig_hex,
-                                 std::string& error)
+    bool VerifyManifestSignature(const std::string_view signing_bytes,
+                                 const std::string_view sig_hex, std::string& error)
     {
         const std::vector<uint8_t> signature = DecodeHex(sig_hex);
         if (signature.size() != 64) {
@@ -111,4 +109,4 @@ namespace gwdash {
         error.clear();
         return true;
     }
-}
+} // namespace gwdash

@@ -16,7 +16,7 @@
  * Values and formatting mirror gwdash.com so both agree at a glance.
  */
 class GWDashPlugin final : public ToolboxUIPlugin {
-public:
+  public:
     GWDashPlugin();
     ~GWDashPlugin() override = default;
 
@@ -39,7 +39,7 @@ public:
     /** Handles /gwdash. Runs on the game thread. */
     void OnChatCommand(int argc, const LPWSTR* argv);
 
-private:
+  private:
     void DrawRows(const gwdash::PriceState& state);
     void DrawCompact(const gwdash::PriceState& state);
     void DrawStatusLine(const gwdash::PriceState& state);

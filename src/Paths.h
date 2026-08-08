@@ -33,4 +33,4 @@ namespace gwdash {
 
     /** Writes via a temporary file plus rename so readers never see a partial write. */
     bool WriteFileAtomic(const std::filesystem::path& path, const std::string& contents);
-}
+} // namespace gwdash

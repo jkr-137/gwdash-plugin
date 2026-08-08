@@ -23,7 +23,7 @@ namespace gwdash {
         int v = 1;
         std::vector<TradePreset> presets;
     };
-}
+} // namespace gwdash
 
 namespace {
     constexpr std::size_t MAX_PRESETS_FILE_BYTES = 64 * 1024;
@@ -54,38 +54,32 @@ namespace {
         }
         int suffix = 2;
         for (;;) {
-            const bool taken = std::any_of(
-                presets.begin(), presets.end(),
-                [&](const gwdash::TradePreset& p) { return NamesEqual(p.name, candidate); });
+            const bool taken =
+                std::any_of(presets.begin(), presets.end(), [&](const gwdash::TradePreset& p) {
+                    return NamesEqual(p.name, candidate);
+                });
             if (!taken) {
                 return candidate;
             }
-            const std::string numbered = gwdash::SanitizePresetName(
-                std::string(base) + "_" + std::to_string(suffix++));
+            const std::string numbered =
+                gwdash::SanitizePresetName(std::string(base) + "_" + std::to_string(suffix++));
             candidate = numbered.empty() ? ("copy" + std::to_string(suffix)) : numbered;
             if (candidate.size() > gwdash::MAX_PRESET_NAME_LEN) {
                 candidate.resize(gwdash::MAX_PRESET_NAME_LEN);
             }
         }
     }
-}
+} // namespace
 
-template <>
-struct glz::meta<gwdash::TradePreset> {
+template <> struct glz::meta<gwdash::TradePreset> {
     using T = gwdash::TradePreset;
-    static constexpr auto value = object(
-        "name", &T::name,
-        "kind", &T::kind,
-        "message", &T::message,
-        "default", &T::is_default);
+    static constexpr auto value = object("name", &T::name, "kind", &T::kind, "message", &T::message,
+                                         "default", &T::is_default);
 };
 
-template <>
-struct glz::meta<gwdash::PresetsFilePayload> {
+template <> struct glz::meta<gwdash::PresetsFilePayload> {
     using T = gwdash::PresetsFilePayload;
-    static constexpr auto value = object(
-        "v", &T::v,
-        "presets", &T::presets);
+    static constexpr auto value = object("v", &T::v, "presets", &T::presets);
 };
 
 namespace gwdash {
@@ -120,9 +114,10 @@ namespace gwdash {
             if (next.name.empty() || next.message.empty()) {
                 continue;
             }
-            const bool duplicate = std::any_of(
-                cleaned.begin(), cleaned.end(),
-                [&](const TradePreset& existing) { return NamesEqual(existing.name, next.name); });
+            const bool duplicate =
+                std::any_of(cleaned.begin(), cleaned.end(), [&](const TradePreset& existing) {
+                    return NamesEqual(existing.name, next.name);
+                });
             if (duplicate) {
                 continue;
             }
@@ -271,9 +266,9 @@ namespace gwdash {
         if (key.empty()) {
             return false;
         }
-        const auto it = std::find_if(
-            presets_.begin(), presets_.end(),
-            [&](const TradePreset& preset) { return NamesEqual(preset.name, key); });
+        const auto it =
+            std::find_if(presets_.begin(), presets_.end(),
+                         [&](const TradePreset& preset) { return NamesEqual(preset.name, key); });
         if (it == presets_.end()) {
             return false;
         }
@@ -348,9 +343,9 @@ namespace gwdash {
             error.clear();
             return true;
         }
-        const auto it = std::find_if(
-            presets_.begin(), presets_.end(),
-            [&](const TradePreset& preset) { return NamesEqual(preset.name, name); });
+        const auto it =
+            std::find_if(presets_.begin(), presets_.end(),
+                         [&](const TradePreset& preset) { return NamesEqual(preset.name, name); });
         if (it == presets_.end()) {
             error = "Unknown preset.";
             return false;
@@ -461,4 +456,4 @@ namespace gwdash {
         }
         return TrySend(*preset, error);
     }
-}
+} // namespace gwdash

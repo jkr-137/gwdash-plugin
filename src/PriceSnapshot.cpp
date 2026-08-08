@@ -2,37 +2,22 @@
 
 #include <glaze/glaze.hpp>
 
-template <>
-struct glz::meta<gwdash::TraderPrice> {
+template <> struct glz::meta<gwdash::TraderPrice> {
     using T = gwdash::TraderPrice;
-    static constexpr auto value = object(
-        "price", &T::price,
-        "buy", &T::buy,
-        "sell", &T::sell,
-        "unit", &T::unit,
-        "src", &T::src,
-        "at", &T::at);
+    static constexpr auto value = object("price", &T::price, "buy", &T::buy, "sell", &T::sell,
+                                         "unit", &T::unit, "src", &T::src, "at", &T::at);
 };
 
-template <>
-struct glz::meta<gwdash::ChatPrice> {
+template <> struct glz::meta<gwdash::ChatPrice> {
     using T = gwdash::ChatPrice;
-    static constexpr auto value = object(
-        "price", &T::price,
-        "unit", &T::unit,
-        "n", &T::n,
-        "at", &T::at);
+    static constexpr auto value =
+        object("price", &T::price, "unit", &T::unit, "n", &T::n, "at", &T::at);
 };
 
-template <>
-struct glz::meta<gwdash::PriceSnapshot> {
+template <> struct glz::meta<gwdash::PriceSnapshot> {
     using T = gwdash::PriceSnapshot;
-    static constexpr auto value = object(
-        "v", &T::v,
-        "at", &T::at,
-        "ecto", &T::ecto,
-        "armbrace", &T::armbrace,
-        "blackdye", &T::blackdye);
+    static constexpr auto value = object("v", &T::v, "at", &T::at, "ecto", &T::ecto, "armbrace",
+                                         &T::armbrace, "blackdye", &T::blackdye);
 };
 
 namespace gwdash {
@@ -51,4 +36,4 @@ namespace gwdash {
         out = std::move(staged);
         return true;
     }
-}
+} // namespace gwdash

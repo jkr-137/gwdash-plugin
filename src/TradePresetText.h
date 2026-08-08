@@ -15,4 +15,4 @@ namespace gwdash {
     std::string SanitizePresetKind(std::string_view raw);
     std::string SanitizePresetMessage(std::string_view raw);
     std::string ComposeTradeLine(std::string_view kind, std::string_view message);
-}
+} // namespace gwdash

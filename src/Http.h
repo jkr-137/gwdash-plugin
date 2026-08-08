@@ -19,19 +19,13 @@ namespace gwdash::http {
      * Returns false only on transport errors; check `out.status` otherwise.
      * `accept` defaults to application/json; pass star-slash-star for binary assets.
      */
-    bool Get(const std::wstring& url,
-             const std::string& etag,
-             std::size_t max_bytes,
-             Response& out,
-             std::string& error,
-             const wchar_t* accept = L"application/json");
+    bool Get(const std::wstring& url, const std::string& etag, std::size_t max_bytes, Response& out,
+             std::string& error, const wchar_t* accept = L"application/json");
 
     /** Blocking HTTPS download to an allowlisted host; creates parent directories. */
-    bool Download(const std::wstring& url,
-                  const std::filesystem::path& destination,
-                  std::size_t max_bytes,
-                  std::string& error);
+    bool Download(const std::wstring& url, const std::filesystem::path& destination,
+                  std::size_t max_bytes, std::string& error);
 
     /** Lowercase hex SHA-256 of a file, empty on failure. */
     std::string FileSha256(const std::filesystem::path& path);
-}
+} // namespace gwdash::http
