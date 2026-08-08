@@ -22,6 +22,9 @@ namespace gwdash {
     /** Last known good snapshot, so the overlay shows numbers immediately. */
     std::filesystem::path SnapshotCacheFile();
 
+    /** User-saved WTB/WTS/WTT trade lines for one-click / command send. */
+    std::filesystem::path PresetsFile();
+
     /** Reads a whole file, returning an empty string when absent or too large. */
     std::string ReadFile(const std::filesystem::path& path, std::size_t max_bytes);
 

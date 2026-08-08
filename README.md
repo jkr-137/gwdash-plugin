@@ -8,13 +8,14 @@ irm https://gwdash.com/install.ps1 | iex
 
 Then start Guild Wars. If the overlay does not appear, enable it once under **Toolbox → Settings → Plugins → GWDash.dll → Load**.
 
-Toggle with `/gwdash`. Also: `/gwdash refresh`, `/gwdash prices`, `/gwdash update`, `/gwdash version`.
+Toggle with `/gwdash`. Also: `/gwdash refresh`, `/gwdash prices`, `/gwdash update`, `/gwdash version`, `/gwdash presets`, `/gwdash send <name>`.
 
 ## What you get
 
 - Three price rows matching the dashboard: `Ecto 5.6k`, `Arms 27e`, `Black Dye 18.4k`
 - Compact single-line mode, adjustable font scale and background
 - Position and size remembered by Toolbox (drag the window)
+- Trade presets: save WTB / WTS / WTT lines locally and send one message to trade chat via the overlay, Settings, or `/gwdash send <name>` (manual only — no auto-repost)
 - Auto-update: a new release is downloaded in the background and activates the next time you start Guild Wars
 
 ## Requirements
@@ -49,9 +50,19 @@ The plugin polls a static JSON snapshot at `https://data.gwdash.com/prices.json`
 
 If the CDN is unreachable, the plugin falls back to `https://gwdash.com/api/plugin/prices` (edge-cached, ETag).
 
+## Trade presets
+
+Under **Toolbox → Settings → Plugins → GWDash** you can add up to 12 named lines (`wtb` / `wts` / `wtt`). They are stored in `plugins/GWDash/presets.json` on your machine.
+
+- **Send** posts exactly one message to the in-game trade channel (`$`). You need to be in a trade district (e.g. Kamadan). There is a 1s cooldown; nothing is sent on a timer or while AFK.
+- **Copy** puts the message on the clipboard if you would rather paste it yourself.
+- Overlay quick-send buttons can be toggled with *Show presets on overlay*.
+- Chat: `/gwdash presets` lists names; `/gwdash send arms` (or whatever name you chose) sends that preset.
+
 ## Safety notes
 
 - **ArenaNet does not permit third-party plugins.** Toolbox itself prints that warning the first time any plugin is loaded. Use at your own risk.
+- Trade-preset **Send** is a convenience for a single, user-initiated chat line — do not use it to spam or automate trade chat.
 - The DLL is currently **unsigned**. Windows Defender occasionally quarantines unsigned Toolbox plugins — if Load fails with a virus error, allow the file and try again.
 - While any plugin is loaded, Toolbox refuses to write a crash dump. Do not report Toolbox crashes that happen with GWDash loaded.
 

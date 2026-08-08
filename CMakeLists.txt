@@ -59,6 +59,8 @@ add_library(GWDashCore SHARED
     "src/PriceClient.cpp"
     "src/PriceClient.h"
     "src/PriceSnapshot.h"
+    "src/TradePresets.cpp"
+    "src/TradePresets.h"
     "src/Updater.cpp"
     "src/Updater.h")
 target_include_directories(GWDashCore PRIVATE "src" "${CMAKE_CURRENT_BINARY_DIR}/generated")
