@@ -1,12 +1,15 @@
 #include "GWDashPlugin.h"
 
 #include <Windows.h>
+#include <commdlg.h>
 
 #include <algorithm>
 #include <array>
-#include <chrono>
 #include <cstring>
+#include <filesystem>
 #include <string>
+#include <string_view>
+#include <vector>
 
 #include <imgui.h>
 
@@ -20,18 +23,16 @@
 
 #include "Paths.h"
 #include "PriceSnapshot.h"
+#include "TimeUtil.h"
 #include "Version.h"
 
 namespace {
     GW::HookEntry chat_command_hook;
 
-    // Font Awesome 5 "coins" (U+F51E). Spelled out rather than pulling in
-    // IconFontCppHeaders just for one glyph; Toolbox merges FA5 into its font.
     constexpr char ICON_COINS[] = "\xEF\x94\x9E";
 
     constexpr std::array<int, 3> REFRESH_CHOICES{60, 120, 300};
     constexpr float UNFOCUSED_IDLE_SECONDS = 600.0f;
-    /** Chat samples older than this are shown as stale rather than current. */
     constexpr int64_t STALE_AFTER_MS = 6 * 60 * 60 * 1000;
 
     constexpr const char* KIND_LABELS[] = {"wtb", "wts", "wtt"};
@@ -60,12 +61,6 @@ namespace {
         return KIND_LABELS[index];
     }
 
-    int64_t NowMs()
-    {
-        using namespace std::chrono;
-        return duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
-    }
-
     void WriteChat(const std::string& message)
     {
         const std::wstring wide = PluginUtils::StringToWString(message);
@@ -78,7 +73,33 @@ namespace {
         return window == nullptr || GetForegroundWindow() == window;
     }
 
-    /** label on the left, value (plus optional age) right-aligned. */
+    std::filesystem::path PickJsonFile(const bool save_dialog)
+    {
+        wchar_t file[MAX_PATH]{};
+        OPENFILENAMEW ofn{};
+        ofn.lStructSize = sizeof(ofn);
+        ofn.hwndOwner = GW::MemoryMgr::GetGWWindowHandle();
+        ofn.lpstrFile = file;
+        ofn.nMaxFile = MAX_PATH;
+        ofn.lpstrFilter = L"JSON files (*.json)\0*.json\0All files (*.*)\0*.*\0";
+        ofn.nFilterIndex = 1;
+        ofn.Flags = OFN_PATHMUSTEXIST | OFN_EXPLORER;
+        if (save_dialog) {
+            ofn.Flags |= OFN_OVERWRITEPROMPT;
+            ofn.lpstrDefExt = L"json";
+            if (!GetSaveFileNameW(&ofn)) {
+                return {};
+            }
+        }
+        else {
+            ofn.Flags |= OFN_FILEMUSTEXIST;
+            if (!GetOpenFileNameW(&ofn)) {
+                return {};
+            }
+        }
+        return file;
+    }
+
     void DrawValueRow(const char* label,
                       const std::string& value,
                       const ImVec4& value_color,
@@ -109,6 +130,14 @@ namespace {
         if (tooltip && ImGui::IsItemHovered()) {
             ImGui::SetTooltip("%s", tooltip);
         }
+    }
+
+    std::string ChatPriceTooltip(const char* title, const gwdash::ChatPrice& price, const bool ready)
+    {
+        if (!ready) {
+            return std::string(title) + " - waiting for trade-chat mentions";
+        }
+        return std::string(title) + " - recency-weighted median (n=" + std::to_string(price.n) + ")";
     }
 }
 
@@ -162,14 +191,12 @@ void GWDashPlugin::SignalTerminate()
     ToolboxUIPlugin::SignalTerminate();
     GW::Chat::DeleteCommand(&chat_command_hook, L"gwdash");
 
-    // Only signals; the worker threads finish their current request and exit.
     prices_.SignalStop();
     updater_.SignalStop();
 }
 
 bool GWDashPlugin::CanTerminate()
 {
-    // Never unmap this DLL while a worker thread is still inside it.
     return prices_.Finished() && updater_.Finished();
 }
 
@@ -190,16 +217,32 @@ void GWDashPlugin::ApplyRefreshInterval()
 
 void GWDashPlugin::PersistPresets()
 {
+    if (!trade_presets_.LoadOk()) {
+        WriteChat("Not saving trade presets - load failed. Reset or fix presets.json.");
+        return;
+    }
     if (!trade_presets_.Save()) {
         WriteChat("Could not save trade presets to disk.");
     }
+}
+
+void GWDashPlugin::RequestSendPreset(const gwdash::TradePreset& preset, const bool confirm)
+{
+    pending_send_name_ = preset.name;
+    pending_send_line_ = gwdash::ComposeTradeLine(preset.kind, preset.message);
+    if (confirm) {
+        open_send_confirm_ = true;
+        return;
+    }
+    SendPreset(preset);
 }
 
 void GWDashPlugin::SendPreset(const gwdash::TradePreset& preset)
 {
     std::string error;
     if (trade_presets_.TrySend(preset, error)) {
-        WriteChat(std::string("Sent to trade: ") + preset.message);
+        WriteChat(std::string("Sent to trade: ") +
+                  gwdash::ComposeTradeLine(preset.kind, preset.message));
         return;
     }
     WriteChat(error.empty() ? "Failed to send trade preset." : error);
@@ -207,17 +250,30 @@ void GWDashPlugin::SendPreset(const gwdash::TradePreset& preset)
 
 void GWDashPlugin::SendPresetByName(const std::string& name)
 {
-    std::string error;
-    if (trade_presets_.TrySendByName(name, error)) {
-        if (const gwdash::TradePreset* preset = trade_presets_.Find(name)) {
-            WriteChat(std::string("Sent to trade: ") + preset->message);
-        }
-        else {
-            WriteChat("Sent to trade chat.");
-        }
+    if (const gwdash::TradePreset* preset = trade_presets_.Find(name)) {
+        SendPreset(*preset);
         return;
     }
-    WriteChat(error.empty() ? "Failed to send trade preset." : error);
+    WriteChat("Unknown preset. Type /gwdash presets to list them.");
+}
+
+void GWDashPlugin::PollSendHotkey()
+{
+    if (send_hotkey_vk_ <= 0 || !GuildWarsHasFocus()) {
+        hotkey_was_down_ = false;
+        return;
+    }
+
+    const bool down = (GetAsyncKeyState(send_hotkey_vk_) & 0x8000) != 0;
+    const bool edge = down && !hotkey_was_down_;
+    hotkey_was_down_ = down;
+    if (!edge) {
+        return;
+    }
+
+    if (const gwdash::TradePreset* preset = trade_presets_.DefaultPreset()) {
+        RequestSendPreset(*preset, true);
+    }
 }
 
 void GWDashPlugin::Update(const float delta)
@@ -226,14 +282,20 @@ void GWDashPlugin::Update(const float delta)
         return;
     }
 
-    // Delta is in seconds despite what the base class header claims.
     if (GuildWarsHasFocus()) {
         seconds_unfocused_ = 0.0f;
     }
     else {
         seconds_unfocused_ += delta;
     }
-    prices_.SetIdle(throttle_unfocused_ && seconds_unfocused_ > UNFOCUSED_IDLE_SECONDS);
+
+    const bool idle = throttle_unfocused_ && seconds_unfocused_ > UNFOCUSED_IDLE_SECONDS;
+    if (idle != prices_idle_) {
+        prices_idle_ = idle;
+        prices_.SetIdle(idle);
+    }
+
+    PollSendHotkey();
 
     seconds_since_tick_ += delta;
     if (seconds_since_tick_ < 1.0f) {
@@ -241,17 +303,14 @@ void GWDashPlugin::Update(const float delta)
     }
     seconds_since_tick_ = 0.0f;
 
-    // Updater messages are queued on its worker thread; chat writes have to
-    // happen here, on the game thread.
     for (const std::string& message : updater_.TakeNotifications()) {
         WriteChat(message);
     }
 }
 
-void GWDashPlugin::DrawRows()
+void GWDashPlugin::DrawRows(const gwdash::PriceState& state)
 {
-    const gwdash::PriceState state = prices_.State();
-    const int64_t now = NowMs();
+    const int64_t now = gwdash::NowMs();
 
     const auto age_for = [&](const std::optional<int64_t>& at) -> std::string {
         if (!show_age_ || !at.has_value() || *at <= 0) {
@@ -287,25 +346,22 @@ void GWDashPlugin::DrawRows()
     const std::string arms_value = state.has_data && snapshot.armbrace.price.has_value()
                                        ? gwdash::FormatEcto(*snapshot.armbrace.price)
                                        : "--";
+    const std::string arms_tip = ChatPriceTooltip(
+        "Armbrace of Truth", snapshot.armbrace, snapshot.armbrace.price.has_value());
     DrawValueRow("Arms", arms_value, color_for(snapshot.armbrace.price, snapshot.armbrace.at),
-                 age_for(snapshot.armbrace.at),
-                 snapshot.armbrace.price.has_value()
-                     ? "Armbrace of Truth - recency-weighted median of Kamadan trade chat, in ecto"
-                     : "Armbrace of Truth - waiting for Kamadan trade-chat mentions");
+                 age_for(snapshot.armbrace.at), arms_tip.c_str());
 
     const std::string dye_value = state.has_data && snapshot.blackdye.price.has_value()
                                       ? gwdash::FormatGold(*snapshot.blackdye.price)
                                       : "--";
+    const std::string dye_tip = ChatPriceTooltip(
+        "Black Dye", snapshot.blackdye, snapshot.blackdye.price.has_value());
     DrawValueRow("Black Dye", dye_value, color_for(snapshot.blackdye.price, snapshot.blackdye.at),
-                 age_for(snapshot.blackdye.at),
-                 snapshot.blackdye.price.has_value()
-                     ? "Black Dye - recency-weighted median of Pre-Searing Ascalon trade chat"
-                     : "Black Dye - waiting for Ascalon trade-chat mentions");
+                 age_for(snapshot.blackdye.at), dye_tip.c_str());
 }
 
-void GWDashPlugin::DrawCompact()
+void GWDashPlugin::DrawCompact(const gwdash::PriceState& state)
 {
-    const gwdash::PriceState state = prices_.State();
     const gwdash::PriceSnapshot& snapshot = state.snapshot;
 
     const std::string line =
@@ -316,11 +372,10 @@ void GWDashPlugin::DrawCompact()
     ImGui::TextUnformatted(line.c_str());
 }
 
-void GWDashPlugin::DrawStatusLine()
+void GWDashPlugin::DrawStatusLine(const gwdash::PriceState& state)
 {
-    const gwdash::PriceState state = prices_.State();
     const gwdash::UpdateState update = updater_.State();
-    const int64_t now = NowMs();
+    const int64_t now = gwdash::NowMs();
 
     if (!state.has_data && !state.error.empty()) {
         ImGui::TextColored(COLOR_ERROR, "offline");
@@ -336,10 +391,18 @@ void GWDashPlugin::DrawStatusLine()
             ImGui::SetTooltip("%s", state.error.empty() ? "no connection" : state.error.c_str());
         }
     }
-    else if (state.received_at > 0) {
-        ImGui::TextDisabled("updated %s ago", gwdash::FormatAge(state.received_at, now).c_str());
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Source: %s", state.source.empty() ? "unknown" : state.source.c_str());
+    else {
+        const int64_t age_at = state.snapshot.at > 0 ? state.snapshot.at : state.received_at;
+        if (age_at > 0) {
+            if (state.from_cache) {
+                ImGui::TextDisabled("updated %s ago (cached)", gwdash::FormatAge(age_at, now).c_str());
+            }
+            else {
+                ImGui::TextDisabled("updated %s ago", gwdash::FormatAge(age_at, now).c_str());
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Source: %s", state.source.empty() ? "unknown" : state.source.c_str());
+            }
         }
     }
 
@@ -351,105 +414,238 @@ void GWDashPlugin::DrawStatusLine()
     }
 }
 
-void GWDashPlugin::Draw(IDirect3DDevice9*)
+void GWDashPlugin::DrawSendConfirmPopup()
 {
-    if (GW::Map::GetInstanceType() == GW::Constants::InstanceType::Loading) {
-        return;
+    if (open_send_confirm_) {
+        ImGui::OpenPopup("Send trade preset?");
+        open_send_confirm_ = false;
     }
 
-    ImGui::SetNextWindowSize(ImVec2(210.0f, 108.0f), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowBgAlpha(background_alpha_);
-
-    if (ImGui::Begin(Name(), show_closebutton ? GetVisiblePtr() : nullptr,
-                     GetWinFlags(ImGuiWindowFlags_NoScrollbar))) {
-        const bool scaled = font_scale_ < 0.99f || font_scale_ > 1.01f;
-        if (scaled) {
-            // SetWindowFontScale is compiled out by Toolbox's
-            // IMGUI_DISABLE_OBSOLETE_FUNCTIONS, so scale the font explicitly.
-            ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * font_scale_);
+    if (ImGui::BeginPopupModal("Send trade preset?", nullptr,
+                               ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextWrapped("Send to trade chat?\n\n%s", pending_send_line_.c_str());
+        if (!gwdash::CanSendTradeChat()) {
+            ImGui::TextColored(COLOR_ERROR, "Not in an outpost.");
         }
-
-        if (compact_) {
-            DrawCompact();
+        if (ImGui::Button("Send", ImVec2(120, 0))) {
+            if (const gwdash::TradePreset* preset = trade_presets_.Find(pending_send_name_)) {
+                SendPreset(*preset);
+            }
+            ImGui::CloseCurrentPopup();
         }
-        else {
-            DrawRows();
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+            ImGui::CloseCurrentPopup();
         }
-
-        if (show_trade_presets_ && !trade_presets_.List().empty()) {
-            ImGui::Separator();
-            DrawTradePresetButtons();
-        }
-
-        if (show_status_) {
-            ImGui::Separator();
-            DrawStatusLine();
-        }
-
-        if (scaled) {
-            ImGui::PopFont();
-        }
+        ImGui::EndPopup();
     }
-    ImGui::End();
+}
+
+void GWDashPlugin::DrawTradePresetPopup()
+{
+    if (ImGui::BeginPopup("gwdash_presets_popup")) {
+        const bool can_send = gwdash::CanSendTradeChat();
+        for (const gwdash::TradePreset& preset : trade_presets_.List()) {
+            ImGui::PushID(preset.name.c_str());
+            const std::string line = gwdash::ComposeTradeLine(preset.kind, preset.message);
+            if (!can_send) {
+                ImGui::BeginDisabled();
+            }
+            if (ImGui::MenuItem(preset.name.c_str())) {
+                RequestSendPreset(preset, true);
+            }
+            if (!can_send) {
+                ImGui::EndDisabled();
+            }
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                ImGui::SetTooltip("%s", line.c_str());
+            }
+            ImGui::PopID();
+        }
+        ImGui::EndPopup();
+    }
 }
 
 void GWDashPlugin::DrawTradePresetButtons()
 {
+    if (compact_) {
+        if (ImGui::SmallButton("Presets...")) {
+            ImGui::OpenPopup("gwdash_presets_popup");
+        }
+        DrawTradePresetPopup();
+        return;
+    }
+
+    if (!ImGui::BeginChild("trade_presets", ImVec2(0.0f, 140.0f), true)) {
+        ImGui::EndChild();
+        return;
+    }
+
+    const bool can_send = gwdash::CanSendTradeChat();
     for (const gwdash::TradePreset& preset : trade_presets_.List()) {
         ImGui::PushID(preset.name.c_str());
+        const std::string line = gwdash::ComposeTradeLine(preset.kind, preset.message);
 
         ImGui::AlignTextToFramePadding();
         ImGui::TextDisabled("[%s]", preset.kind.c_str());
         ImGui::SameLine();
         ImGui::TextUnformatted(preset.name.c_str());
+        if (preset.is_default) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("*");
+        }
         if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("%s", preset.message.c_str());
+            ImGui::SetTooltip("%s", line.c_str());
         }
 
         ImGui::SameLine();
+        if (!can_send) {
+            ImGui::BeginDisabled();
+        }
         if (ImGui::SmallButton("Send")) {
-            SendPreset(preset);
+            RequestSendPreset(preset, true);
+        }
+        if (!can_send) {
+            ImGui::EndDisabled();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                ImGui::SetTooltip("Trade chat is only available in an outpost.");
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Copy")) {
+            ImGui::SetClipboardText(line.c_str());
+            WriteChat("Copied trade preset to clipboard.");
         }
 
         ImGui::PopID();
     }
+
+    ImGui::EndChild();
 }
 
 void GWDashPlugin::DrawTradePresetSettings()
 {
     ImGui::TextUnformatted("Trade presets");
-    ImGui::TextDisabled("Saved locally. Send is manual only and needs a trade district.");
+    ImGui::TextDisabled("Saved locally. Send is manual, outpost-only, with a 3s cooldown.");
     ImGui::Checkbox("Show presets on overlay", &show_trade_presets_);
+
+    ImGui::InputInt("Send hotkey VK (0=off)", &send_hotkey_vk_);
+    send_hotkey_vk_ = std::clamp(send_hotkey_vk_, 0, 255);
+    ImGui::TextDisabled("Hotkey sends the default preset after a confirm dialog.");
+
+    if (!trade_presets_.LoadOk()) {
+        ImGui::TextColored(COLOR_ERROR, "%s",
+                           trade_presets_.LoadError().empty()
+                               ? "Failed to load presets.json"
+                               : trade_presets_.LoadError().c_str());
+        if (ImGui::Button("Reset presets")) {
+            trade_presets_.Reset();
+            preset_edit_drafts_.clear();
+            PersistPresets();
+            presets_ui_error_.clear();
+        }
+    }
 
     if (!presets_ui_error_.empty()) {
         ImGui::TextColored(COLOR_ERROR, "%s", presets_ui_error_.c_str());
     }
 
-    // Snapshot so Delete during the loop does not invalidate iteration.
+    if (ImGui::Button("Export JSON")) {
+        const auto path = PickJsonFile(true);
+        if (!path.empty()) {
+            std::string error;
+            if (trade_presets_.ExportToFile(path, error)) {
+                WriteChat("Exported trade presets.");
+                presets_ui_error_.clear();
+            }
+            else {
+                presets_ui_error_ = error;
+            }
+        }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Import JSON")) {
+        const auto path = PickJsonFile(false);
+        if (!path.empty()) {
+            std::string error;
+            if (trade_presets_.ImportFromFile(path, error)) {
+                preset_edit_drafts_.clear();
+                PersistPresets();
+                WriteChat("Imported trade presets.");
+                presets_ui_error_.clear();
+            }
+            else {
+                presets_ui_error_ = error;
+            }
+        }
+    }
+
     const std::vector<gwdash::TradePreset> listed = trade_presets_.List();
     for (const gwdash::TradePreset& preset : listed) {
         ImGui::PushID(preset.name.c_str());
-        ImGui::Separator();
 
-        ImGui::TextUnformatted(preset.name.c_str());
+        const bool open = open_preset_editor_ == preset.name;
+        ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_CollapsingHeader;
+        if (open) {
+            flags |= ImGuiTreeNodeFlags_DefaultOpen;
+        }
+        const std::string header = preset.name + (preset.is_default ? "  (default)" : "");
+        const bool expanded = ImGui::CollapsingHeader(header.c_str(), flags);
+        if (expanded && open_preset_editor_ != preset.name) {
+            open_preset_editor_ = preset.name;
+        }
+        else if (!expanded && open_preset_editor_ == preset.name) {
+            open_preset_editor_.clear();
+        }
+
+        if (!expanded) {
+            ImGui::PopID();
+            continue;
+        }
+
+        // Keep only one editor open at a time.
+        if (open_preset_editor_ != preset.name) {
+            open_preset_editor_ = preset.name;
+        }
 
         auto [it, inserted] = preset_edit_drafts_.try_emplace(preset.name);
         PresetEditDraft& draft = it->second;
         if (inserted) {
             draft.kind_index = KindIndex(preset.kind);
+            draft.rename.fill('\0');
             draft.message.fill('\0');
+            strncpy_s(draft.rename.data(), draft.rename.size(), preset.name.c_str(), _TRUNCATE);
             strncpy_s(draft.message.data(), draft.message.size(), preset.message.c_str(), _TRUNCATE);
         }
 
         ImGui::Combo("Kind", &draft.kind_index, KIND_COMBO);
         ImGui::InputText("Message", draft.message.data(), draft.message.size());
+        ImGui::InputText("Rename", draft.rename.data(), draft.rename.size());
+
+        const std::string preview =
+            gwdash::ComposeTradeLine(KindLabel(draft.kind_index), draft.message.data());
+        ImGui::TextDisabled("Preview: %s", preview.c_str());
 
         if (ImGui::Button("Save")) {
             std::string error;
             if (trade_presets_.Upsert(preset.name, KindLabel(draft.kind_index), draft.message.data(),
                                       error)) {
-                PersistPresets();
-                presets_ui_error_.clear();
+                if (draft.rename[0] != '\0' &&
+                    gwdash::SanitizePresetName(draft.rename.data()) != preset.name) {
+                    if (!trade_presets_.Rename(preset.name, draft.rename.data(), error)) {
+                        presets_ui_error_ = error;
+                    }
+                    else {
+                        preset_edit_drafts_.erase(preset.name);
+                        open_preset_editor_ = gwdash::SanitizePresetName(draft.rename.data());
+                        PersistPresets();
+                        presets_ui_error_.clear();
+                    }
+                }
+                else {
+                    PersistPresets();
+                    presets_ui_error_.clear();
+                }
             }
             else {
                 presets_ui_error_ = error;
@@ -460,17 +656,62 @@ void GWDashPlugin::DrawTradePresetSettings()
             gwdash::TradePreset pending = preset;
             pending.kind = KindLabel(draft.kind_index);
             pending.message = gwdash::SanitizePresetMessage(draft.message.data());
-            SendPreset(pending);
+            RequestSendPreset(pending, true);
         }
         ImGui::SameLine();
         if (ImGui::Button("Copy")) {
-            ImGui::SetClipboardText(draft.message.data());
+            ImGui::SetClipboardText(preview.c_str());
             WriteChat("Copied trade preset to clipboard.");
+        }
+
+        if (ImGui::Button("Up")) {
+            std::string error;
+            if (trade_presets_.Move(preset.name, -1, error)) {
+                PersistPresets();
+            }
+            else if (!error.empty()) {
+                presets_ui_error_ = error;
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Down")) {
+            std::string error;
+            if (trade_presets_.Move(preset.name, 1, error)) {
+                PersistPresets();
+            }
+            else if (!error.empty()) {
+                presets_ui_error_ = error;
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Duplicate")) {
+            std::string error;
+            if (trade_presets_.Duplicate(preset.name, error)) {
+                PersistPresets();
+                presets_ui_error_.clear();
+            }
+            else {
+                presets_ui_error_ = error;
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Default")) {
+            std::string error;
+            if (trade_presets_.SetDefault(preset.name, error)) {
+                PersistPresets();
+                presets_ui_error_.clear();
+            }
+            else {
+                presets_ui_error_ = error;
+            }
         }
         ImGui::SameLine();
         if (ImGui::Button("Delete")) {
             if (trade_presets_.Remove(preset.name)) {
                 preset_edit_drafts_.erase(preset.name);
+                if (open_preset_editor_ == preset.name) {
+                    open_preset_editor_.clear();
+                }
                 PersistPresets();
                 presets_ui_error_.clear();
             }
@@ -483,7 +724,11 @@ void GWDashPlugin::DrawTradePresetSettings()
     ImGui::TextUnformatted("Add preset");
     ImGui::InputText("Name", draft_name_.data(), draft_name_.size());
     ImGui::Combo("Kind##new", &draft_kind_index_, KIND_COMBO);
-    ImGui::InputText("Message##new", draft_message_.data(), draft_message_.size());
+    ImGui::InputTextWithHint("Message##new", "e.g. 27e arms", draft_message_.data(),
+                             draft_message_.size());
+    ImGui::TextDisabled("Preview: %s",
+                        gwdash::ComposeTradeLine(KindLabel(draft_kind_index_), draft_message_.data())
+                            .c_str());
 
     if (trade_presets_.List().size() >= gwdash::MAX_TRADE_PRESETS) {
         ImGui::TextDisabled("At most %zu presets.", gwdash::MAX_TRADE_PRESETS);
@@ -502,6 +747,52 @@ void GWDashPlugin::DrawTradePresetSettings()
             presets_ui_error_ = error;
         }
     }
+}
+
+void GWDashPlugin::Draw(IDirect3DDevice9*)
+{
+    if (GW::Map::GetInstanceType() == GW::Constants::InstanceType::Loading) {
+        return;
+    }
+
+    ImGui::SetNextWindowSize(ImVec2(210.0f, 108.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowBgAlpha(background_alpha_);
+
+    const bool show_presets = show_trade_presets_ && !trade_presets_.List().empty();
+    ImGuiWindowFlags flags = show_presets ? 0 : ImGuiWindowFlags_NoScrollbar;
+
+    if (ImGui::Begin(Name(), show_closebutton ? GetVisiblePtr() : nullptr, GetWinFlags(flags))) {
+        const bool scaled = font_scale_ < 0.99f || font_scale_ > 1.01f;
+        if (scaled) {
+            ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * font_scale_);
+        }
+
+        const gwdash::PriceState state = prices_.State();
+
+        if (compact_) {
+            DrawCompact(state);
+        }
+        else {
+            DrawRows(state);
+        }
+
+        if (show_presets) {
+            ImGui::Separator();
+            DrawTradePresetButtons();
+        }
+
+        if (show_status_) {
+            ImGui::Separator();
+            DrawStatusLine(state);
+        }
+
+        DrawSendConfirmPopup();
+
+        if (scaled) {
+            ImGui::PopFont();
+        }
+    }
+    ImGui::End();
 }
 
 void GWDashPlugin::DrawSettings()
@@ -555,6 +846,7 @@ void GWDashPlugin::DrawSettings()
 
     ImGui::Separator();
     DrawTradePresetSettings();
+    DrawSendConfirmPopup();
 }
 
 void GWDashPlugin::LoadSettings(const wchar_t* folder)
@@ -571,10 +863,12 @@ void GWDashPlugin::LoadSettings(const wchar_t* folder)
     LoadSetting("auto_update", auto_update_);
     LoadSetting("background_alpha", background_alpha_);
     LoadSetting("font_scale", font_scale_);
+    LoadSetting("send_hotkey_vk", send_hotkey_vk_);
 
     refresh_index_ = std::clamp(refresh_index_, 0, static_cast<int>(REFRESH_CHOICES.size()) - 1);
     background_alpha_ = std::clamp(background_alpha_, 0.0f, 1.0f);
     font_scale_ = std::clamp(font_scale_, 0.7f, 2.0f);
+    send_hotkey_vk_ = std::clamp(send_hotkey_vk_, 0, 255);
 
     ApplyRefreshInterval();
     updater_.SetAutoInstall(auto_update_);
@@ -594,6 +888,7 @@ void GWDashPlugin::SaveSettings(const wchar_t* folder)
     SaveSetting("auto_update", auto_update_);
     SaveSetting("background_alpha", background_alpha_);
     SaveSetting("font_scale", font_scale_);
+    SaveSetting("send_hotkey_vk", send_hotkey_vk_);
 
     ToolboxUIPlugin::SaveSettings(folder);
     PersistPresets();
@@ -659,7 +954,9 @@ void GWDashPlugin::OnChatCommand(const int argc, const LPWSTR* argv)
         }
         WriteChat(std::string("Trade presets (") + std::to_string(presets.size()) + "):");
         for (const gwdash::TradePreset& preset : presets) {
-            WriteChat("  /gwdash send " + preset.name + "  [" + preset.kind + "] " + preset.message);
+            const std::string line = gwdash::ComposeTradeLine(preset.kind, preset.message);
+            WriteChat("  /gwdash send " + preset.name + (preset.is_default ? " *" : "") +
+                      "  " + line);
         }
     }
     else if (argument == L"send") {

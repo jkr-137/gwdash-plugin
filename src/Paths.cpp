@@ -55,6 +55,11 @@ namespace gwdash {
         return DataDirectory() / L"presets.json";
     }
 
+    fs::path UpdaterEtagFile()
+    {
+        return DataDirectory() / L"updater-etag.txt";
+    }
+
     std::string ReadFile(const fs::path& path, const std::size_t max_bytes)
     {
         std::error_code ec;
