@@ -1,9 +1,13 @@
 #include "TradePresets.h"
 
+#include <Windows.h>
+
 #include <algorithm>
 #include <cctype>
 #include <chrono>
 #include <string_view>
+
+#include <imgui.h>
 
 #include <GWCA/Constants/Constants.h>
 #include <GWCA/Managers/ChatMgr.h>

@@ -438,7 +438,7 @@ void GWDashPlugin::DrawTradePresetSettings()
         if (inserted) {
             draft.kind_index = KindIndex(preset.kind);
             draft.message.fill('\0');
-            std::strncpy(draft.message.data(), preset.message.c_str(), draft.message.size() - 1);
+            strncpy_s(draft.message.data(), draft.message.size(), preset.message.c_str(), _TRUNCATE);
         }
 
         ImGui::Combo("Kind", &draft.kind_index, KIND_COMBO);
