@@ -6,6 +6,8 @@
 #include <cctype>
 #include <string_view>
 
+#include <imgui.h>
+
 #include <GWCA/Constants/Constants.h>
 #include <GWCA/Managers/ChatMgr.h>
 #include <GWCA/Managers/MapMgr.h>
