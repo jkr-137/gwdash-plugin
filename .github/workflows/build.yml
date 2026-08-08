@@ -26,29 +26,19 @@ jobs:
           version: "0.0.0-ci"
           run_tests: "true"
 
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Pinned so the gate cannot drift with whatever LLVM the runner image ships.
       - name: clang-format check
         shell: pwsh
         run: |
-          $clangFormat = Get-Command clang-format -ErrorAction SilentlyContinue
-          if (-not $clangFormat) {
-            Write-Host "clang-format not on PATH; trying LLVM install locations"
-            $candidates = @(
-              "C:\Program Files\LLVM\bin\clang-format.exe",
-              "C:\Program Files (x86)\Microsoft Visual Studio\2022\Enterprise\VC\Tools\Llvm\bin\clang-format.exe"
-            )
-            foreach ($c in $candidates) {
-              if (Test-Path $c) { $clangFormat = $c; break }
-            }
-          } else {
-            $clangFormat = $clangFormat.Source
-          }
-          if (-not $clangFormat) {
-            Write-Host "clang-format unavailable on runner - skipping style check"
-            exit 0
-          }
+          python -m pip install --quiet clang-format==22.1.8
           $files = Get-ChildItem -Recurse src,loader,compat,tests -Include *.cpp,*.h,*.c |
             Where-Object { $_.FullName -notmatch '\\vendor\\' }
-          & $clangFormat --dry-run --Werror @($files.FullName)
+          clang-format --dry-run --Werror @($files.FullName)
           if ($LASTEXITCODE -ne 0) { throw "clang-format check failed" }
 
       - name: Upload artifacts
