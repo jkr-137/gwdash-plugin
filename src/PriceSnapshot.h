@@ -64,14 +64,20 @@ namespace gwdash {
         return buffer;
     }
 
-    /** Ecto-denominated formatting, e.g. "27e". */
+    /** Ecto-denominated formatting, e.g. "27e" or "27.4e". */
     inline std::string FormatEcto(const double value)
     {
         if (value <= 0.0) {
             return "--";
         }
         char buffer[32];
-        snprintf(buffer, sizeof(buffer), "%llde", static_cast<long long>(value + 0.5));
+        const long long whole = static_cast<long long>(value + 0.0001);
+        if (value - static_cast<double>(whole) < 0.05) {
+            snprintf(buffer, sizeof(buffer), "%llde", whole);
+        }
+        else {
+            snprintf(buffer, sizeof(buffer), "%.1fe", value);
+        }
         return buffer;
     }
 

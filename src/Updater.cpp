@@ -13,7 +13,9 @@
 #include <glaze/glaze.hpp>
 
 #include "Http.h"
+#include "Manifest.h"
 #include "Paths.h"
+#include "TimeUtil.h"
 #include "Version.h"
 
 namespace fs = std::filesystem;
@@ -53,9 +55,12 @@ namespace {
     constexpr char CORE_ASSET_NARROW[] = "GWDash.core.dll";
     constexpr char LOADER_ASSET[] = "GWDash.dll";
     constexpr char CHECKSUM_ASSET[] = "SHA256SUMS";
+    constexpr char MANIFEST_ASSET[] = "manifest.json";
+    constexpr char MANIFEST_SIG_ASSET[] = "manifest.sig";
 
     constexpr std::size_t MAX_RELEASE_BYTES = 512 * 1024;
     constexpr std::size_t MAX_CHECKSUM_BYTES = 16 * 1024;
+    constexpr std::size_t MAX_MANIFEST_BYTES = 16 * 1024;
     constexpr std::size_t MAX_PAYLOAD_BYTES = 24 * 1024 * 1024;
 
     constexpr int CHECK_INTERVAL_SECONDS = 6 * 60 * 60;
@@ -64,8 +69,7 @@ namespace {
 
     int64_t NowMs()
     {
-        using namespace std::chrono;
-        return duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+        return gwdash::NowMs();
     }
 
     std::wstring Widen(const std::string& value)
@@ -247,10 +251,15 @@ namespace gwdash {
         const std::wstring releases_url =
             L"https://api.github.com/repos/" + Widen(GWDASH_UPDATE_REPO) + L"/releases/latest";
 
+        std::string etag = Trim(ReadFile(UpdaterEtagFile(), 256));
         http::Response response;
         std::string error;
-        if (!http::Get(releases_url, {}, MAX_RELEASE_BYTES, response, error)) {
+        if (!http::Get(releases_url, etag, MAX_RELEASE_BYTES, response, error)) {
             SetStatus(UpdateStatus::Failed, "Update check failed: " + error);
+            return;
+        }
+        if (response.status == 304) {
+            SetStatus(UpdateStatus::UpToDate, "GWDash " GWDASH_VERSION " is up to date.");
             return;
         }
         if (response.status == 404) {
@@ -261,11 +270,18 @@ namespace gwdash {
             SetStatus(UpdateStatus::Failed, "Update check failed: HTTP " + std::to_string(response.status));
             return;
         }
+        if (!response.etag.empty()) {
+            WriteFileAtomic(UpdaterEtagFile(), response.etag);
+        }
 
         constexpr glz::opts lenient{.error_on_unknown_keys = false};
         github::Release release{};
         if (glz::read<lenient>(release, response.body)) {
             SetStatus(UpdateStatus::Failed, "Could not read the release info from GitHub.");
+            return;
+        }
+        if (release.draft || release.prerelease) {
+            SetStatus(UpdateStatus::UpToDate, "Latest GitHub release is draft/prerelease - ignoring.");
             return;
         }
 
@@ -297,23 +313,72 @@ namespace gwdash {
 
         const github::Asset* core = FindAsset(release, CORE_ASSET_NARROW);
         const github::Asset* sums = FindAsset(release, CHECKSUM_ASSET);
-        if (!core || !sums) {
-            SetStatus(UpdateStatus::Failed, "Release " + latest + " is missing the expected files.");
+        const github::Asset* manifest_asset = FindAsset(release, MANIFEST_ASSET);
+        const github::Asset* manifest_sig_asset = FindAsset(release, MANIFEST_SIG_ASSET);
+        if (!core || !sums || !manifest_asset || !manifest_sig_asset) {
+            SetStatus(UpdateStatus::Failed,
+                      "Release " + latest + " is missing signed manifest assets.");
             return;
         }
 
         SetStatus(UpdateStatus::Downloading, "Downloading version " + latest + "...");
 
+        http::Response manifest_response;
+        if (!http::Get(Widen(manifest_asset->browser_download_url), {}, MAX_MANIFEST_BYTES,
+                       manifest_response, error) ||
+            manifest_response.status != 200) {
+            SetStatus(UpdateStatus::Failed, "Could not download manifest.json.");
+            return;
+        }
+        http::Response manifest_sig_response;
+        if (!http::Get(Widen(manifest_sig_asset->browser_download_url), {}, MAX_MANIFEST_BYTES,
+                       manifest_sig_response, error) ||
+            manifest_sig_response.status != 200) {
+            SetStatus(UpdateStatus::Failed, "Could not download manifest.sig.");
+            return;
+        }
+
+        UpdateManifest manifest{};
+        if (!ParseManifest(manifest_response.body, manifest, error)) {
+            SetStatus(UpdateStatus::Failed, error);
+            return;
+        }
+        if (StripVersionPrefix(manifest.version) != latest) {
+            SetStatus(UpdateStatus::Failed, "manifest version does not match release tag.");
+            return;
+        }
+
+        std::string signing_bytes;
+        if (!ManifestSigningBytes(manifest, signing_bytes, error)) {
+            SetStatus(UpdateStatus::Failed, error);
+            return;
+        }
+        const std::string sig_hex = Trim(manifest_sig_response.body);
+        if (!VerifyManifestSignature(signing_bytes, sig_hex, error)) {
+            SetStatus(UpdateStatus::Failed, error);
+            return;
+        }
+
         http::Response checksums;
-        if (!http::Get(Widen(sums->browser_download_url), {}, MAX_CHECKSUM_BYTES, checksums, error) ||
+        if (!http::Get(Widen(sums->browser_download_url), {}, MAX_CHECKSUM_BYTES, checksums, error,
+                       L"*/*") ||
             checksums.status != 200) {
             SetStatus(UpdateStatus::Failed, "Could not download SHA256SUMS.");
             return;
         }
 
-        const std::string expected = FindChecksum(checksums.body, CORE_ASSET_NARROW);
+        std::string expected;
+        for (const ManifestFile& file : manifest.files) {
+            if (file.name == CORE_ASSET_NARROW) {
+                expected = file.sha256;
+                break;
+            }
+        }
         if (expected.empty()) {
-            SetStatus(UpdateStatus::Failed, std::string("SHA256SUMS has no entry for ") + CORE_ASSET_NARROW);
+            expected = FindChecksum(checksums.body, CORE_ASSET_NARROW);
+        }
+        if (expected.empty()) {
+            SetStatus(UpdateStatus::Failed, std::string("No checksum for ") + CORE_ASSET_NARROW);
             return;
         }
 

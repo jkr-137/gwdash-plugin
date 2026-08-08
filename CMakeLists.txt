@@ -4,7 +4,7 @@ if(NOT CMAKE_GENERATOR MATCHES "Ninja|Makefile")
     set(CMAKE_GENERATOR_PLATFORM win32)
 endif()
 
-project(gwdash-plugin LANGUAGES CXX)
+project(gwdash-plugin LANGUAGES C CXX)
 
 # Guild Wars is a 32-bit process, so a plugin DLL has to be 32-bit too.
 if(NOT (CMAKE_SIZEOF_VOID_P EQUAL 4))
@@ -28,6 +28,8 @@ set(GWDASH_UPDATE_REPO "jkr-137/gwdash-plugin" CACHE STRING "GitHub repo the in-
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_C_STANDARD 99)
+set(CMAKE_C_STANDARD_REQUIRED ON)
 
 # Static CRT, matching Toolbox: nothing that owns CRT memory may cross the
 # plugin/host boundary, and the ToolboxPlugin vtable is built so nothing does.
@@ -39,6 +41,7 @@ add_compile_definitions(
     WIN32_LEAN_AND_MEAN
     # glaze's float writer reaches for an x64-only intrinsic when it detects SSE.
     ZMIJ_USE_SIMD=0
+    ED25519_NO_SEED
 )
 
 add_compile_options(/permissive- /constexpr:depth2048 /constexpr:steps10000000 /templateDepth:2048 /bigobj /MP)
@@ -48,23 +51,43 @@ include(cmake/ToolboxSdk.cmake)
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/src/Version.h.in"
                "${CMAKE_CURRENT_BINARY_DIR}/generated/Version.h" @ONLY)
 
+set(GWDASH_ED25519_SOURCES
+    "vendor/ed25519/fe.c"
+    "vendor/ed25519/ge.c"
+    "vendor/ed25519/sc.c"
+    "vendor/ed25519/sha512.c"
+    "vendor/ed25519/verify.c"
+    "vendor/ed25519/sign.c"
+    "vendor/ed25519/keypair.c")
+
 # The payload. Lives in plugins/GWDash/ and is what auto-update replaces.
 add_library(GWDashCore SHARED
     "src/GWDashPlugin.cpp"
     "src/GWDashPlugin.h"
     "src/Http.cpp"
     "src/Http.h"
+    "src/Manifest.cpp"
+    "src/Manifest.h"
     "src/Paths.cpp"
     "src/Paths.h"
     "src/PriceClient.cpp"
     "src/PriceClient.h"
+    "src/PriceSnapshot.cpp"
     "src/PriceSnapshot.h"
+    "src/TimeUtil.h"
+    "src/TradePresetText.cpp"
+    "src/TradePresetText.h"
     "src/TradePresets.cpp"
     "src/TradePresets.h"
+    "src/UpdatePublicKey.h"
     "src/Updater.cpp"
-    "src/Updater.h")
-target_include_directories(GWDashCore PRIVATE "src" "${CMAKE_CURRENT_BINARY_DIR}/generated")
-target_link_libraries(GWDashCore PRIVATE winhttp bcrypt)
+    "src/Updater.h"
+    ${GWDASH_ED25519_SOURCES})
+target_include_directories(GWDashCore PRIVATE
+    "src"
+    "vendor/ed25519"
+    "${CMAKE_CURRENT_BINARY_DIR}/generated")
+target_link_libraries(GWDashCore PRIVATE winhttp bcrypt comdlg32)
 set_target_properties(GWDashCore PROPERTIES OUTPUT_NAME "GWDash.core")
 gwdash_add_plugin_dll(GWDashCore)
 
@@ -76,3 +99,16 @@ add_library(GWDashLoader SHARED
 target_include_directories(GWDashLoader PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
 set_target_properties(GWDashLoader PROPERTIES OUTPUT_NAME "GWDash")
 gwdash_add_plugin_dll(GWDashLoader)
+
+# Pure unit tests (no GWCA / ImGui).
+add_executable(gwdash_tests
+    "tests/gwdash_tests.cpp"
+    "src/Manifest.cpp"
+    "src/PriceSnapshot.cpp"
+    "src/TradePresetText.cpp"
+    ${GWDASH_ED25519_SOURCES})
+target_include_directories(gwdash_tests PRIVATE
+    "src"
+    "vendor/ed25519"
+    "${CMAKE_CURRENT_BINARY_DIR}/generated")
+target_link_libraries(gwdash_tests PRIVATE glaze::glaze)

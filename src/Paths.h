@@ -25,6 +25,9 @@ namespace gwdash {
     /** User-saved WTB/WTS/WTT trade lines for one-click / command send. */
     std::filesystem::path PresetsFile();
 
+    /** Cached ETag for GitHub releases/latest. */
+    std::filesystem::path UpdaterEtagFile();
+
     /** Reads a whole file, returning an empty string when absent or too large. */
     std::string ReadFile(const std::filesystem::path& path, std::size_t max_bytes);
 

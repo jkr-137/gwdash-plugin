@@ -28,36 +28,24 @@ jobs:
           "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           Write-Host "Releasing $version"
 
-      - name: Setup MSVC (x86)
-        uses: ilammy/msvc-dev-cmd@v1
+      - name: Build Windows x86
+        uses: ./.github/actions/build-windows-x86
         with:
-          arch: x86
+          version: ${{ steps.version.outputs.version }}
+          run_tests: "true"
 
-      - name: Setup vcpkg
-        uses: lukka/run-vcpkg@v11
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
-          vcpkgGitCommitId: "2b65c20fc66eda893aa15a15a453c3cf09500b19"
+          python-version: "3.12"
 
-      - name: Configure
-        run: |
-          cmake -S . -B build -G "Visual Studio 17 2022" -A Win32 `
-            "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" `
-            -DVCPKG_TARGET_TRIPLET=x86-windows-static `
-            "-DGWDASH_VERSION=${{ steps.version.outputs.version }}"
-
-      - name: Build
-        run: cmake --build build --config RelWithDebInfo --parallel
-
-      - name: Package
+      - name: Sign update manifest
         shell: pwsh
+        env:
+          GWDASH_UPDATE_ED25519_SK: ${{ secrets.GWDASH_UPDATE_ED25519_SK }}
         run: |
-          New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Copy-Item bin/RelWithDebInfo/GWDash.dll dist/
-          Copy-Item bin/RelWithDebInfo/GWDash.core.dll dist/
-          Get-FileHash dist/*.dll -Algorithm SHA256 |
-            ForEach-Object { "$($_.Hash.ToLowerInvariant())  $($_.Path | Split-Path -Leaf)" } |
-            Set-Content -Encoding ascii dist/SHA256SUMS
-          Get-Content dist/SHA256SUMS
+          python -m pip install --quiet cryptography
+          python scripts/sign-manifest.py --dist dist --version ${{ steps.version.outputs.version }}
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -67,7 +55,11 @@ jobs:
           files: |
             dist/GWDash.dll
             dist/GWDash.core.dll
+            dist/GWDash.pdb
+            dist/GWDash.core.pdb
             dist/SHA256SUMS
+            dist/manifest.json
+            dist/manifest.sig
           body: |
             In-game price overlay for [GWDash](https://gwdash.com): Ecto, Armbrace and Black Dye.
 
@@ -79,4 +71,5 @@ jobs:
 
             Or drop `GWDash.dll` into `%USERPROFILE%\Documents\GWToolboxpp\<COMPUTERNAME>\plugins\` and `GWDash.core.dll` into a `GWDash\` subfolder, then enable the plugin under Settings → Plugins.
 
-            Built against GWToolbox++ `8.32_Release`.
+            Built against GWToolbox++ `${{ env.GWDASH_TOOLBOX_TAG }}`.
+            Release assets include PDBs and an ed25519-signed `manifest.json` for the in-game updater.

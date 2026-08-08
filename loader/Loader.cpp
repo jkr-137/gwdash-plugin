@@ -20,6 +20,7 @@
 #include <filesystem>
 #include <string>
 #include <system_error>
+#include <vector>
 
 #include <imgui.h>
 
@@ -46,12 +47,18 @@ namespace {
     /** Directory this DLL sits in, i.e. Toolbox's plugins folder. */
     fs::path OwnDirectory()
     {
-        wchar_t buffer[MAX_PATH]{};
-        const DWORD length = GetModuleFileNameW(plugin_handle, buffer, static_cast<DWORD>(std::size(buffer)));
-        if (length == 0 || length >= std::size(buffer)) {
-            return {};
+        std::vector<wchar_t> buffer(MAX_PATH);
+        for (;;) {
+            const DWORD length = GetModuleFileNameW(plugin_handle, buffer.data(),
+                                                    static_cast<DWORD>(buffer.size()));
+            if (length == 0) {
+                return {};
+            }
+            if (length < buffer.size()) {
+                return fs::path(buffer.data(), buffer.data() + length).parent_path();
+            }
+            buffer.resize(buffer.size() * 2);
         }
-        return fs::path(buffer).parent_path();
     }
 
     bool Rename(const fs::path& from, const fs::path& to)
@@ -154,7 +161,11 @@ namespace {
             ToolboxPlugin::Initialize(ctx, allocator_fns, toolbox_dll);
             if (!reported) {
                 reported = true;
-                Debug(load_error);
+                Debug(load_error.empty() ? "payload failed to load" : load_error);
+                // Visible once without needing GWCA WriteChat in the loader.
+                MessageBoxA(nullptr,
+                            load_error.empty() ? "GWDash.core.dll failed to load." : load_error.c_str(),
+                            "GWDash", MB_OK | MB_ICONWARNING);
             }
         }
 

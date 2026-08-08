@@ -21,6 +21,7 @@ namespace {
     constexpr DWORD SEND_TIMEOUT_MS = 10'000;
     constexpr DWORD RECEIVE_TIMEOUT_MS = 20'000;
     constexpr DWORD READ_CHUNK = 16 * 1024;
+    constexpr int MAX_REDIRECTS = 3;
 
     class Handle {
     public:
@@ -116,7 +117,6 @@ namespace {
         return false;
     }
 
-    /** Reject CR/LF/controls so a malicious ETag cannot inject request headers. */
     bool IsSafeEtag(const std::string& etag)
     {
         if (etag.empty() || etag.size() > 200) {
@@ -130,7 +130,58 @@ namespace {
         return true;
     }
 
-    bool OpenRequest(const std::wstring& url, const std::string& etag, Request& out, std::string& error)
+    long QueryStatus(const HINTERNET request)
+    {
+        DWORD status = 0;
+        DWORD size = sizeof(status);
+        if (!WinHttpQueryHeaders(request, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+                                WINHTTP_HEADER_NAME_BY_INDEX, &status, &size, WINHTTP_NO_HEADER_INDEX)) {
+            return 0;
+        }
+        return static_cast<long>(status);
+    }
+
+    std::string QueryEtag(const HINTERNET request)
+    {
+        DWORD size = 0;
+        WinHttpQueryHeaders(request, WINHTTP_QUERY_CUSTOM, L"ETag",
+                            WINHTTP_NO_OUTPUT_BUFFER, &size, WINHTTP_NO_HEADER_INDEX);
+        if (size == 0 || size > 1024) {
+            return {};
+        }
+
+        std::wstring value(size / sizeof(wchar_t), L'\0');
+        if (!WinHttpQueryHeaders(request, WINHTTP_QUERY_CUSTOM, L"ETag",
+                                 value.data(), &size, WINHTTP_NO_HEADER_INDEX)) {
+            return {};
+        }
+        while (!value.empty() && value.back() == L'\0') {
+            value.pop_back();
+        }
+        return Narrow(value);
+    }
+
+    std::wstring QueryLocation(const HINTERNET request)
+    {
+        DWORD size = 0;
+        WinHttpQueryHeaders(request, WINHTTP_QUERY_LOCATION, WINHTTP_HEADER_NAME_BY_INDEX,
+                            WINHTTP_NO_OUTPUT_BUFFER, &size, WINHTTP_NO_HEADER_INDEX);
+        if (size == 0 || size > 4096) {
+            return {};
+        }
+        std::wstring value(size / sizeof(wchar_t), L'\0');
+        if (!WinHttpQueryHeaders(request, WINHTTP_QUERY_LOCATION, WINHTTP_HEADER_NAME_BY_INDEX,
+                                 value.data(), &size, WINHTTP_NO_HEADER_INDEX)) {
+            return {};
+        }
+        while (!value.empty() && value.back() == L'\0') {
+            value.pop_back();
+        }
+        return value;
+    }
+
+    bool OpenRequestOnce(const std::wstring& url, const std::string& etag, const wchar_t* accept,
+                         Request& out, std::string& error)
     {
         std::array<wchar_t, 256> host{};
         std::array<wchar_t, 2048> path{};
@@ -169,6 +220,9 @@ namespace {
         WinHttpSetTimeouts(out.session.get(), RESOLVE_TIMEOUT_MS, CONNECT_TIMEOUT_MS,
                            SEND_TIMEOUT_MS, RECEIVE_TIMEOUT_MS);
 
+        DWORD disable = WINHTTP_DISABLE_REDIRECTS;
+        WinHttpSetOption(out.session.get(), WINHTTP_OPTION_DISABLE_FEATURE, &disable, sizeof(disable));
+
         out.connection = Handle(WinHttpConnect(out.session.get(), host.data(), components.nPort, 0));
         if (!out.connection) {
             error = LastErrorMessage("WinHttpConnect");
@@ -183,7 +237,9 @@ namespace {
             return false;
         }
 
-        std::wstring headers = L"Accept: application/json\r\n";
+        std::wstring headers = L"Accept: ";
+        headers += accept && accept[0] ? accept : L"application/json";
+        headers += L"\r\n";
         if (IsSafeEtag(etag)) {
             headers += L"If-None-Match: " + Widen(etag) + L"\r\n";
         }
@@ -204,35 +260,32 @@ namespace {
         return true;
     }
 
-    long QueryStatus(const HINTERNET request)
+    bool OpenRequest(std::wstring url, const std::string& etag, const wchar_t* accept, Request& out,
+                     std::string& error)
     {
-        DWORD status = 0;
-        DWORD size = sizeof(status);
-        if (!WinHttpQueryHeaders(request, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
-                                WINHTTP_HEADER_NAME_BY_INDEX, &status, &size, WINHTTP_NO_HEADER_INDEX)) {
-            return 0;
-        }
-        return static_cast<long>(status);
-    }
+        for (int hop = 0; hop <= MAX_REDIRECTS; ++hop) {
+            Request attempt;
+            if (!OpenRequestOnce(url, etag, accept, attempt, error)) {
+                return false;
+            }
 
-    std::string QueryEtag(const HINTERNET request)
-    {
-        DWORD size = 0;
-        WinHttpQueryHeaders(request, WINHTTP_QUERY_CUSTOM, L"ETag",
-                            WINHTTP_NO_OUTPUT_BUFFER, &size, WINHTTP_NO_HEADER_INDEX);
-        if (size == 0 || size > 1024) {
-            return {};
+            const long status = QueryStatus(attempt.request.get());
+            if (status == 301 || status == 302 || status == 303 || status == 307 || status == 308) {
+                const std::wstring location = QueryLocation(attempt.request.get());
+                if (location.empty()) {
+                    error = "redirect missing Location header";
+                    return false;
+                }
+                url = location;
+                continue;
+            }
+
+            out = std::move(attempt);
+            return true;
         }
 
-        std::wstring value(size / sizeof(wchar_t), L'\0');
-        if (!WinHttpQueryHeaders(request, WINHTTP_QUERY_CUSTOM, L"ETag",
-                                 value.data(), &size, WINHTTP_NO_HEADER_INDEX)) {
-            return {};
-        }
-        while (!value.empty() && value.back() == L'\0') {
-            value.pop_back();
-        }
-        return Narrow(value);
+        error = "too many redirects";
+        return false;
     }
 }
 
@@ -241,10 +294,11 @@ namespace gwdash::http {
              const std::string& etag,
              const std::size_t max_bytes,
              Response& out,
-             std::string& error)
+             std::string& error,
+             const wchar_t* accept)
     {
         Request request;
-        if (!OpenRequest(url, etag, request, error)) {
+        if (!OpenRequest(url, etag, accept, request, error)) {
             return false;
         }
 
@@ -289,7 +343,7 @@ namespace gwdash::http {
                   std::string& error)
     {
         Request request;
-        if (!OpenRequest(url, {}, request, error)) {
+        if (!OpenRequest(url, {}, L"*/*", request, error)) {
             return false;
         }
 

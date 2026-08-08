@@ -1,6 +1,6 @@
 #pragma once
 
-#include <cstdint>
+#include <cstddef>
 #include <filesystem>
 #include <string>
 
@@ -17,12 +17,14 @@ namespace gwdash::http {
      * Blocking HTTPS GET to an allowlisted host. `etag` is sent as If-None-Match
      * when it is non-empty and free of CR/LF/control characters (else ignored).
      * Returns false only on transport errors; check `out.status` otherwise.
+     * `accept` defaults to application/json; pass "*/*" for binary assets.
      */
     bool Get(const std::wstring& url,
              const std::string& etag,
              std::size_t max_bytes,
              Response& out,
-             std::string& error);
+             std::string& error,
+             const wchar_t* accept = L"application/json");
 
     /** Blocking HTTPS download to an allowlisted host; creates parent directories. */
     bool Download(const std::wstring& url,

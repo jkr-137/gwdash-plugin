@@ -40,16 +40,20 @@ public:
     void OnChatCommand(int argc, const LPWSTR* argv);
 
 private:
-    void DrawRows();
-    void DrawCompact();
-    void DrawStatusLine();
+    void DrawRows(const gwdash::PriceState& state);
+    void DrawCompact(const gwdash::PriceState& state);
+    void DrawStatusLine(const gwdash::PriceState& state);
     void DrawTradePresetButtons();
+    void DrawTradePresetPopup();
     void DrawTradePresetSettings();
+    void DrawSendConfirmPopup();
     void WritePricesToChat() const;
     void ApplyRefreshInterval();
     void PersistPresets();
+    void RequestSendPreset(const gwdash::TradePreset& preset, bool confirm);
     void SendPreset(const gwdash::TradePreset& preset);
     void SendPresetByName(const std::string& name);
+    void PollSendHotkey();
 
     gwdash::PriceClient prices_;
     gwdash::Updater updater_;
@@ -68,18 +72,25 @@ private:
     bool auto_update_ = true;
     float background_alpha_ = 0.75f;
     float font_scale_ = 1.0f;
+    int send_hotkey_vk_ = 0; // 0 = disabled
 
     struct PresetEditDraft {
         int kind_index = 1;
+        std::array<char, gwdash::MAX_PRESET_NAME_LEN + 1> rename{};
         std::array<char, gwdash::MAX_PRESET_MESSAGE_LEN + 1> message{};
     };
 
-    // Draft buffers for the Settings "Add preset" form (null-terminated).
     std::array<char, gwdash::MAX_PRESET_NAME_LEN + 1> draft_name_{};
     int draft_kind_index_ = 1; // wts
     std::array<char, gwdash::MAX_PRESET_MESSAGE_LEN + 1> draft_message_{};
     std::unordered_map<std::string, PresetEditDraft> preset_edit_drafts_;
     std::string presets_ui_error_;
+    std::string open_preset_editor_;
+    std::string pending_send_name_;
+    std::string pending_send_line_;
+    bool open_send_confirm_ = false;
+    bool hotkey_was_down_ = false;
+    bool prices_idle_ = false;
 
     float seconds_since_tick_ = 0.0f;
     float seconds_unfocused_ = 0.0f;
