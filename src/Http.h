@@ -17,7 +17,7 @@ namespace gwdash::http {
      * Blocking HTTPS GET to an allowlisted host. `etag` is sent as If-None-Match
      * when it is non-empty and free of CR/LF/control characters (else ignored).
      * Returns false only on transport errors; check `out.status` otherwise.
-     * `accept` defaults to application/json; pass "*/*" for binary assets.
+     * `accept` defaults to application/json; pass star-slash-star for binary assets.
      */
     bool Get(const std::wstring& url,
              const std::string& etag,
