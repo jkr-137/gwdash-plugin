@@ -50,6 +50,11 @@ namespace gwdash {
         return DataDirectory() / L"cache.json";
     }
 
+    fs::path PresetsFile()
+    {
+        return DataDirectory() / L"presets.json";
+    }
+
     std::string ReadFile(const fs::path& path, const std::size_t max_bytes)
     {
         std::error_code ec;

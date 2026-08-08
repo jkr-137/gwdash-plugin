@@ -1,8 +1,13 @@
 #pragma once
 
+#include <array>
+#include <string>
+#include <unordered_map>
+
 #include <ToolboxUIPlugin.h>
 
 #include "PriceClient.h"
+#include "TradePresets.h"
 #include "Updater.h"
 
 /**
@@ -38,11 +43,17 @@ private:
     void DrawRows();
     void DrawCompact();
     void DrawStatusLine();
+    void DrawTradePresetButtons();
+    void DrawTradePresetSettings();
     void WritePricesToChat() const;
     void ApplyRefreshInterval();
+    void PersistPresets();
+    void SendPreset(const gwdash::TradePreset& preset);
+    void SendPresetByName(const std::string& name);
 
     gwdash::PriceClient prices_;
     gwdash::Updater updater_;
+    gwdash::TradePresets trade_presets_;
 
     bool started_ = false;
 
@@ -52,10 +63,23 @@ private:
     bool show_age_ = true;
     bool show_ecto_spread_ = false;
     bool show_status_ = true;
+    bool show_trade_presets_ = true;
     bool throttle_unfocused_ = true;
     bool auto_update_ = true;
     float background_alpha_ = 0.75f;
     float font_scale_ = 1.0f;
+
+    struct PresetEditDraft {
+        int kind_index = 1;
+        std::array<char, gwdash::MAX_PRESET_MESSAGE_LEN + 1> message{};
+    };
+
+    // Draft buffers for the Settings "Add preset" form (null-terminated).
+    std::array<char, gwdash::MAX_PRESET_NAME_LEN + 1> draft_name_{};
+    int draft_kind_index_ = 1; // wts
+    std::array<char, gwdash::MAX_PRESET_MESSAGE_LEN + 1> draft_message_{};
+    std::unordered_map<std::string, PresetEditDraft> preset_edit_drafts_;
+    std::string presets_ui_error_;
 
     float seconds_since_tick_ = 0.0f;
     float seconds_unfocused_ = 0.0f;
