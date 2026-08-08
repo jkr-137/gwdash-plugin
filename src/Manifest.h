@@ -28,4 +28,4 @@ namespace gwdash {
 
     /** Decode lowercase/uppercase hex; empty on failure. */
     std::vector<uint8_t> DecodeHex(std::string_view hex);
-}
+} // namespace gwdash

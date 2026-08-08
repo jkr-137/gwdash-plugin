@@ -53,12 +53,10 @@ namespace gwdash {
             const double k = static_cast<double>(gold) / 1000.0;
             if (k >= 100.0) {
                 snprintf(buffer, sizeof(buffer), "%lldk", static_cast<long long>(k + 0.5));
-            }
-            else {
+            } else {
                 snprintf(buffer, sizeof(buffer), "%.1fk", k);
             }
-        }
-        else {
+        } else {
             snprintf(buffer, sizeof(buffer), "%lld", gold);
         }
         return buffer;
@@ -74,8 +72,7 @@ namespace gwdash {
         const long long whole = static_cast<long long>(value + 0.0001);
         if (value - static_cast<double>(whole) < 0.05) {
             snprintf(buffer, sizeof(buffer), "%llde", whole);
-        }
-        else {
+        } else {
             snprintf(buffer, sizeof(buffer), "%.1fe", value);
         }
         return buffer;
@@ -92,16 +89,13 @@ namespace gwdash {
         char buffer[32];
         if (seconds < 60) {
             snprintf(buffer, sizeof(buffer), "%llds", static_cast<long long>(seconds));
-        }
-        else if (seconds < 3600) {
+        } else if (seconds < 3600) {
             snprintf(buffer, sizeof(buffer), "%lldm", static_cast<long long>(seconds / 60));
-        }
-        else if (seconds < 86400) {
+        } else if (seconds < 86400) {
             snprintf(buffer, sizeof(buffer), "%lldh", static_cast<long long>(seconds / 3600));
-        }
-        else {
+        } else {
             snprintf(buffer, sizeof(buffer), "%lldd", static_cast<long long>(seconds / 86400));
         }
         return buffer;
     }
-}
+} // namespace gwdash

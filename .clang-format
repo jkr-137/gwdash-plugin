@@ -14,7 +14,7 @@ BraceWrapping:
   AfterStruct: false
   BeforeElse: false
   IndentBraces: false
-NamespaceIndentation: None
+NamespaceIndentation: All
 PointerAlignment: Left
 SortIncludes: false
 SpaceAfterCStyleCast: false

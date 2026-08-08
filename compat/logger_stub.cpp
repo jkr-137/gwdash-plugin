@@ -44,7 +44,8 @@ namespace {
         vsnprintf(message, _countof(message), format, args);
 
         wchar_t wide[MAX_MESSAGE];
-        if (MultiByteToWideChar(CP_UTF8, 0, message, -1, wide, static_cast<int>(_countof(wide))) > 0) {
+        if (MultiByteToWideChar(CP_UTF8, 0, message, -1, wide, static_cast<int>(_countof(wide))) >
+            0) {
             GW::Chat::WriteChat(GWTOOLBOX_CHAN, wide, L"GWDash", transient);
         }
     }
@@ -55,7 +56,7 @@ namespace {
         _vsnwprintf_s(message, _countof(message), _TRUNCATE, format, args);
         GW::Chat::WriteChat(GWTOOLBOX_CHAN, message, L"GWDash", transient);
     }
-}
+} // namespace
 
 namespace Log {
     void Log(const char* msg, ...)
@@ -145,7 +146,8 @@ namespace Log {
     void FatalAssert(const char* expr, const char* file, const unsigned line)
     {
         char line_buffer[MAX_MESSAGE];
-        snprintf(line_buffer, _countof(line_buffer), "[GWDash] assertion failed: %s (%s:%u)\n", expr, file, line);
+        snprintf(line_buffer, _countof(line_buffer), "[GWDash] assertion failed: %s (%s:%u)\n",
+                 expr, file, line);
         OutputDebugStringA(line_buffer);
     }
-}
+} // namespace Log

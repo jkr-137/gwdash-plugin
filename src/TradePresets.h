@@ -24,7 +24,7 @@ namespace gwdash {
      * Send goes through GW::Chat::SendChat('$', ...) and must run on the game thread.
      */
     class TradePresets {
-    public:
+      public:
         [[nodiscard]] const std::vector<TradePreset>& List() const { return presets_; }
         [[nodiscard]] bool LoadOk() const { return load_ok_; }
         [[nodiscard]] const std::string& LoadError() const { return load_error_; }
@@ -50,7 +50,7 @@ namespace gwdash {
         bool TrySend(const TradePreset& preset, std::string& error);
         bool TrySendByName(std::string_view name, std::string& error);
 
-    private:
+      private:
         bool WritePayload(const std::filesystem::path& path, std::string& error) const;
         bool ReadPayload(const std::string& json, std::vector<TradePreset>& out,
                          std::string& error) const;
@@ -60,4 +60,4 @@ namespace gwdash {
         bool load_ok_ = true;
         std::string load_error_;
     };
-}
+} // namespace gwdash

@@ -24,7 +24,7 @@ namespace {
     constexpr int MAX_REDIRECTS = 3;
 
     class Handle {
-    public:
+      public:
         Handle() = default;
         explicit Handle(const HINTERNET handle) : handle_(handle) {}
         ~Handle() { Close(); }
@@ -46,7 +46,7 @@ namespace {
         [[nodiscard]] HINTERNET get() const { return handle_; }
         explicit operator bool() const { return handle_ != nullptr; }
 
-    private:
+      private:
         void Close()
         {
             if (handle_) {
@@ -63,12 +63,14 @@ namespace {
         if (value.empty()) {
             return {};
         }
-        const int needed = MultiByteToWideChar(CP_UTF8, 0, value.data(), static_cast<int>(value.size()), nullptr, 0);
+        const int needed = MultiByteToWideChar(CP_UTF8, 0, value.data(),
+                                               static_cast<int>(value.size()), nullptr, 0);
         if (needed <= 0) {
             return {};
         }
         std::wstring out(static_cast<size_t>(needed), L'\0');
-        MultiByteToWideChar(CP_UTF8, 0, value.data(), static_cast<int>(value.size()), out.data(), needed);
+        MultiByteToWideChar(CP_UTF8, 0, value.data(), static_cast<int>(value.size()), out.data(),
+                            needed);
         return out;
     }
 
@@ -77,14 +79,14 @@ namespace {
         if (value.empty()) {
             return {};
         }
-        const int needed = WideCharToMultiByte(CP_UTF8, 0, value.data(), static_cast<int>(value.size()),
-                                               nullptr, 0, nullptr, nullptr);
+        const int needed = WideCharToMultiByte(
+            CP_UTF8, 0, value.data(), static_cast<int>(value.size()), nullptr, 0, nullptr, nullptr);
         if (needed <= 0) {
             return {};
         }
         std::string out(static_cast<size_t>(needed), '\0');
-        WideCharToMultiByte(CP_UTF8, 0, value.data(), static_cast<int>(value.size()),
-                            out.data(), needed, nullptr, nullptr);
+        WideCharToMultiByte(CP_UTF8, 0, value.data(), static_cast<int>(value.size()), out.data(),
+                            needed, nullptr, nullptr);
         return out;
     }
 
@@ -135,7 +137,8 @@ namespace {
         DWORD status = 0;
         DWORD size = sizeof(status);
         if (!WinHttpQueryHeaders(request, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
-                                WINHTTP_HEADER_NAME_BY_INDEX, &status, &size, WINHTTP_NO_HEADER_INDEX)) {
+                                 WINHTTP_HEADER_NAME_BY_INDEX, &status, &size,
+                                 WINHTTP_NO_HEADER_INDEX)) {
             return 0;
         }
         return static_cast<long>(status);
@@ -144,15 +147,15 @@ namespace {
     std::string QueryEtag(const HINTERNET request)
     {
         DWORD size = 0;
-        WinHttpQueryHeaders(request, WINHTTP_QUERY_CUSTOM, L"ETag",
-                            WINHTTP_NO_OUTPUT_BUFFER, &size, WINHTTP_NO_HEADER_INDEX);
+        WinHttpQueryHeaders(request, WINHTTP_QUERY_CUSTOM, L"ETag", WINHTTP_NO_OUTPUT_BUFFER, &size,
+                            WINHTTP_NO_HEADER_INDEX);
         if (size == 0 || size > 1024) {
             return {};
         }
 
         std::wstring value(size / sizeof(wchar_t), L'\0');
-        if (!WinHttpQueryHeaders(request, WINHTTP_QUERY_CUSTOM, L"ETag",
-                                 value.data(), &size, WINHTTP_NO_HEADER_INDEX)) {
+        if (!WinHttpQueryHeaders(request, WINHTTP_QUERY_CUSTOM, L"ETag", value.data(), &size,
+                                 WINHTTP_NO_HEADER_INDEX)) {
             return {};
         }
         while (!value.empty() && value.back() == L'\0') {
@@ -221,9 +224,11 @@ namespace {
                            SEND_TIMEOUT_MS, RECEIVE_TIMEOUT_MS);
 
         DWORD disable = WINHTTP_DISABLE_REDIRECTS;
-        WinHttpSetOption(out.session.get(), WINHTTP_OPTION_DISABLE_FEATURE, &disable, sizeof(disable));
+        WinHttpSetOption(out.session.get(), WINHTTP_OPTION_DISABLE_FEATURE, &disable,
+                         sizeof(disable));
 
-        out.connection = Handle(WinHttpConnect(out.session.get(), host.data(), components.nPort, 0));
+        out.connection =
+            Handle(WinHttpConnect(out.session.get(), host.data(), components.nPort, 0));
         if (!out.connection) {
             error = LastErrorMessage("WinHttpConnect");
             return false;
@@ -243,7 +248,8 @@ namespace {
         if (IsSafeEtag(etag)) {
             headers += L"If-None-Match: " + Widen(etag) + L"\r\n";
         }
-        WinHttpAddRequestHeaders(out.request.get(), headers.c_str(), static_cast<DWORD>(headers.size()),
+        WinHttpAddRequestHeaders(out.request.get(), headers.c_str(),
+                                 static_cast<DWORD>(headers.size()),
                                  WINHTTP_ADDREQ_FLAG_ADD | WINHTTP_ADDREQ_FLAG_REPLACE);
 
         if (!WinHttpSendRequest(out.request.get(), WINHTTP_NO_ADDITIONAL_HEADERS, 0,
@@ -287,15 +293,11 @@ namespace {
         error = "too many redirects";
         return false;
     }
-}
+} // namespace
 
 namespace gwdash::http {
-    bool Get(const std::wstring& url,
-             const std::string& etag,
-             const std::size_t max_bytes,
-             Response& out,
-             std::string& error,
-             const wchar_t* accept)
+    bool Get(const std::wstring& url, const std::string& etag, const std::size_t max_bytes,
+             Response& out, std::string& error, const wchar_t* accept)
     {
         Request request;
         if (!OpenRequest(url, etag, accept, request, error)) {
@@ -337,9 +339,7 @@ namespace gwdash::http {
         return true;
     }
 
-    bool Download(const std::wstring& url,
-                  const fs::path& destination,
-                  const std::size_t max_bytes,
+    bool Download(const std::wstring& url, const fs::path& destination, const std::size_t max_bytes,
                   std::string& error)
     {
         Request request;
@@ -416,8 +416,9 @@ namespace gwdash::http {
 
         DWORD object_length = 0;
         DWORD written = 0;
-        if (BCryptGetProperty(algorithm, BCRYPT_OBJECT_LENGTH, reinterpret_cast<PUCHAR>(&object_length),
-                              sizeof(object_length), &written, 0) != 0) {
+        if (BCryptGetProperty(algorithm, BCRYPT_OBJECT_LENGTH,
+                              reinterpret_cast<PUCHAR>(&object_length), sizeof(object_length),
+                              &written, 0) != 0) {
             BCryptCloseAlgorithmProvider(algorithm, 0);
             return {};
         }
@@ -448,7 +449,8 @@ namespace gwdash::http {
 
             if (ok) {
                 std::array<UCHAR, 32> digest{};
-                if (BCryptFinishHash(hash, digest.data(), static_cast<ULONG>(digest.size()), 0) == 0) {
+                if (BCryptFinishHash(hash, digest.data(), static_cast<ULONG>(digest.size()), 0) ==
+                    0) {
                     static constexpr char HEX[] = "0123456789abcdef";
                     result.reserve(digest.size() * 2);
                     for (const UCHAR byte : digest) {
@@ -463,4 +465,4 @@ namespace gwdash::http {
         BCryptCloseAlgorithmProvider(algorithm, 0);
         return result;
     }
-}
+} // namespace gwdash::http

@@ -23,7 +23,7 @@ namespace {
     {
         return gwdash::NowMs();
     }
-}
+} // namespace
 
 namespace gwdash {
     PriceClient::~PriceClient()
@@ -175,8 +175,7 @@ namespace gwdash {
                 std::lock_guard lock(state_mutex_);
                 if (ok) {
                     state_.consecutive_failures = 0;
-                }
-                else {
+                } else {
                     if (state_.consecutive_failures < 100) {
                         state_.consecutive_failures += 1;
                     }
@@ -188,11 +187,10 @@ namespace gwdash {
             }
 
             std::unique_lock lock(wait_mutex_);
-            wait_cv_.wait_for(lock, std::chrono::seconds(wait_seconds), [this] {
-                return stop_.load() || refresh_.exchange(false);
-            });
+            wait_cv_.wait_for(lock, std::chrono::seconds(wait_seconds),
+                              [this] { return stop_.load() || refresh_.exchange(false); });
         }
 
         finished_ = true;
     }
-}
+} // namespace gwdash
