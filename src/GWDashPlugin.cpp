@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cstring>
 #include <filesystem>
 #include <string>
@@ -99,33 +100,116 @@ namespace {
         return file;
     }
 
-    void DrawValueRow(const char* label, const std::string& value, const ImVec4& value_color,
-                      const std::string& age, const char* tooltip)
+    // Prices are the reason the overlay exists, so they get a bigger font and
+    // full-white text; labels and ages stay quieter.
+    constexpr float PRICE_VALUE_SCALE = 1.25f;
+    const ImVec4 COLOR_LABEL{0.82f, 0.80f, 0.74f, 1.0f};
+    const ImVec4 COLOR_VALUE{1.0f, 1.0f, 1.0f, 1.0f};
+    const ImVec4 COLOR_WTB{0.47f, 0.74f, 1.0f, 1.0f};
+    const ImVec4 COLOR_WTS{0.55f, 0.86f, 0.47f, 1.0f};
+    const ImVec4 COLOR_WTT{1.0f, 0.78f, 0.38f, 1.0f};
+
+    struct PriceRow {
+        const char* label;
+        std::string value;
+        ImVec4 value_color;
+        std::string age;
+        std::string tooltip;
+        std::string detail; // optional muted line under the row (ecto buy/sell)
+    };
+
+    void TextRightAligned(const ImVec4& color, const std::string& text)
     {
-        ImGui::BeginGroup();
+        const float width = ImGui::CalcTextSize(text.c_str()).x;
+        const float avail = ImGui::GetContentRegionAvail().x;
+        if (avail > width) {
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + avail - width);
+        }
+        ImGui::TextColored(color, "%s", text.c_str());
+    }
 
-        const float row_start = ImGui::GetCursorPosX();
-        const float row_width = ImGui::GetContentRegionAvail().x;
-        const float spacing = ImGui::GetStyle().ItemSpacing.x;
+    void TooltipIfHovered(const std::string& tooltip)
+    {
+        if (!tooltip.empty() && ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("%s", tooltip.c_str());
+        }
+    }
 
-        ImGui::TextUnformatted(label);
+    void DrawPriceTable(const std::vector<PriceRow>& rows, const float value_font_size,
+                        const bool with_age)
+    {
+        // Line height of the enlarged value font, to drop the smaller label/age onto
+        // roughly the same baseline.
+        const float small_height = ImGui::GetTextLineHeight();
+        ImGui::PushFont(nullptr, value_font_size);
+        const float big_height = ImGui::GetTextLineHeight();
+        ImGui::PopFont();
+        const float baseline_offset = std::max(0.0f, (big_height - small_height) * 0.75f);
 
-        const float value_width = ImGui::CalcTextSize(value.c_str()).x;
-        const float age_width = age.empty() ? 0.0f : ImGui::CalcTextSize(age.c_str()).x + spacing;
-
-        ImGui::SameLine(row_start + row_width - value_width - age_width);
-        ImGui::TextColored(value_color, "%s", value.c_str());
-
-        if (!age.empty()) {
-            ImGui::SameLine(0.0f, spacing);
-            ImGui::TextDisabled("%s", age.c_str());
+        constexpr ImGuiTableFlags table_flags =
+            ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoSavedSettings |
+            ImGuiTableFlags_NoPadOuterX | ImGuiTableFlags_NoClip;
+        if (!ImGui::BeginTable("gwdash_prices", with_age ? 3 : 2, table_flags)) {
+            return;
+        }
+        ImGui::TableSetupColumn("label", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn("value", ImGuiTableColumnFlags_WidthFixed);
+        if (with_age) {
+            ImGui::TableSetupColumn("age", ImGuiTableColumnFlags_WidthFixed);
         }
 
-        ImGui::EndGroup();
+        for (const PriceRow& row : rows) {
+            ImGui::TableNextRow();
 
-        if (tooltip && ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("%s", tooltip);
+            ImGui::TableSetColumnIndex(0);
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() + baseline_offset);
+            ImGui::TextColored(COLOR_LABEL, "%s", row.label);
+            TooltipIfHovered(row.tooltip);
+
+            ImGui::TableSetColumnIndex(1);
+            ImGui::PushFont(nullptr, value_font_size);
+            TextRightAligned(row.value_color, row.value);
+            ImGui::PopFont();
+            TooltipIfHovered(row.tooltip);
+
+            if (with_age) {
+                ImGui::TableSetColumnIndex(2);
+                ImGui::SetCursorPosY(ImGui::GetCursorPosY() + baseline_offset);
+                if (row.age.empty()) {
+                    ImGui::TextUnformatted("");
+                } else {
+                    TextRightAligned(ImGui::GetStyle().Colors[ImGuiCol_TextDisabled], row.age);
+                    TooltipIfHovered("Age of this price");
+                }
+            }
+
+            if (!row.detail.empty()) {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::TextDisabled("%s", row.detail.c_str());
+            }
         }
+
+        ImGui::EndTable();
+    }
+
+    const ImVec4& KindColor(const std::string& kind)
+    {
+        if (kind == "wtb") {
+            return COLOR_WTB;
+        }
+        if (kind == "wtt") {
+            return COLOR_WTT;
+        }
+        return COLOR_WTS;
+    }
+
+    std::string UpperKind(const std::string& kind)
+    {
+        std::string out = kind;
+        std::transform(out.begin(), out.end(), out.begin(),
+                       [](const unsigned char c) { return static_cast<char>(std::toupper(c)); });
+        return out;
     }
 
     std::string ChatPriceTooltip(const char* title, const gwdash::ChatPrice& price,
@@ -246,6 +330,32 @@ void GWDashPlugin::SendPreset(const gwdash::TradePreset& preset)
     WriteChat(error.empty() ? "Failed to send trade preset." : error);
 }
 
+void GWDashPlugin::SendAndCopyPreset(const gwdash::TradePreset& preset)
+{
+    const std::string line = gwdash::ComposeTradeLine(preset.kind, preset.message);
+    if (line.empty()) {
+        WriteChat("Preset message is empty.");
+        return;
+    }
+
+    // Always copy first: even when sending is not possible right now (explorable,
+    // cooldown) the line is ready for Ctrl+V in the chat box.
+    ImGui::SetClipboardText(line.c_str());
+
+    if (!gwdash::CanSendTradeChat()) {
+        WriteChat("Copied (trade chat only works in an outpost): " + line);
+        return;
+    }
+
+    std::string error;
+    if (trade_presets_.TrySend(preset, error)) {
+        WriteChat("Sent to trade + copied: " + line);
+        return;
+    }
+    WriteChat((error.empty() ? std::string("Failed to send trade preset.") : error) +
+              " Copied to clipboard instead.");
+}
+
 void GWDashPlugin::SendPresetByName(const std::string& name)
 {
     if (const gwdash::TradePreset* preset = trade_presets_.Find(name)) {
@@ -324,38 +434,49 @@ void GWDashPlugin::DrawRows(const gwdash::PriceState& state)
         if (at.has_value() && *at > 0 && now - *at > STALE_AFTER_MS) {
             return COLOR_STALE;
         }
-        return ImGui::GetStyle().Colors[ImGuiCol_Text];
+        return COLOR_VALUE;
     };
 
     const gwdash::PriceSnapshot& snapshot = state.snapshot;
+    std::vector<PriceRow> rows;
+    rows.reserve(3);
 
-    const std::string ecto_value = state.has_data && snapshot.ecto.price.has_value()
-                                       ? gwdash::FormatGold(*snapshot.ecto.price)
-                                       : "--";
-    DrawValueRow("Ecto", ecto_value, color_for(snapshot.ecto.price, snapshot.ecto.at),
-                 age_for(snapshot.ecto.at),
-                 "Ectoplasm - average of the NPC trader's buy/sell price");
-
+    PriceRow ecto{"Ecto",
+                  state.has_data && snapshot.ecto.price.has_value()
+                      ? gwdash::FormatGold(*snapshot.ecto.price)
+                      : "--",
+                  color_for(snapshot.ecto.price, snapshot.ecto.at),
+                  age_for(snapshot.ecto.at),
+                  "Ectoplasm - average of the NPC trader's buy/sell price",
+                  {}};
     if (show_ecto_spread_ && snapshot.ecto.buy.has_value() && snapshot.ecto.sell.has_value()) {
-        ImGui::TextDisabled("  buy %s / sell %s", gwdash::FormatGold(*snapshot.ecto.buy).c_str(),
-                            gwdash::FormatGold(*snapshot.ecto.sell).c_str());
+        ecto.detail = "buy " + gwdash::FormatGold(*snapshot.ecto.buy) + " / sell " +
+                      gwdash::FormatGold(*snapshot.ecto.sell);
     }
+    rows.push_back(std::move(ecto));
 
-    const std::string arms_value = state.has_data && snapshot.armbrace.price.has_value()
-                                       ? gwdash::FormatEcto(*snapshot.armbrace.price)
-                                       : "--";
-    const std::string arms_tip = ChatPriceTooltip("Armbrace of Truth", snapshot.armbrace,
-                                                  snapshot.armbrace.price.has_value());
-    DrawValueRow("Arms", arms_value, color_for(snapshot.armbrace.price, snapshot.armbrace.at),
-                 age_for(snapshot.armbrace.at), arms_tip.c_str());
+    rows.push_back(PriceRow{"Arms",
+                            state.has_data && snapshot.armbrace.price.has_value()
+                                ? gwdash::FormatEcto(*snapshot.armbrace.price)
+                                : "--",
+                            color_for(snapshot.armbrace.price, snapshot.armbrace.at),
+                            age_for(snapshot.armbrace.at),
+                            ChatPriceTooltip("Armbrace of Truth", snapshot.armbrace,
+                                             snapshot.armbrace.price.has_value()),
+                            {}});
 
-    const std::string dye_value = state.has_data && snapshot.blackdye.price.has_value()
-                                      ? gwdash::FormatGold(*snapshot.blackdye.price)
-                                      : "--";
-    const std::string dye_tip =
-        ChatPriceTooltip("Black Dye", snapshot.blackdye, snapshot.blackdye.price.has_value());
-    DrawValueRow("Black Dye", dye_value, color_for(snapshot.blackdye.price, snapshot.blackdye.at),
-                 age_for(snapshot.blackdye.at), dye_tip.c_str());
+    rows.push_back(PriceRow{
+        "Black Dye",
+        state.has_data && snapshot.blackdye.price.has_value()
+            ? gwdash::FormatGold(*snapshot.blackdye.price)
+            : "--",
+        color_for(snapshot.blackdye.price, snapshot.blackdye.at),
+        age_for(snapshot.blackdye.at),
+        ChatPriceTooltip("Black Dye", snapshot.blackdye, snapshot.blackdye.price.has_value()),
+        {}});
+
+    DrawPriceTable(rows, ImGui::GetStyle().FontSizeBase * font_scale_ * PRICE_VALUE_SCALE,
+                   show_age_);
 }
 
 void GWDashPlugin::DrawCompact(const gwdash::PriceState& state)
@@ -430,7 +551,7 @@ void GWDashPlugin::DrawSendConfirmPopup()
         }
         if (ImGui::Button("Send", ImVec2(120, 0))) {
             if (const gwdash::TradePreset* preset = trade_presets_.Find(pending_send_name_)) {
-                SendPreset(*preset);
+                SendAndCopyPreset(*preset);
             }
             ImGui::CloseCurrentPopup();
         }
@@ -449,16 +570,10 @@ void GWDashPlugin::DrawTradePresetPopup()
         for (const gwdash::TradePreset& preset : trade_presets_.List()) {
             ImGui::PushID(preset.name.c_str());
             const std::string line = gwdash::ComposeTradeLine(preset.kind, preset.message);
-            if (!can_send) {
-                ImGui::BeginDisabled();
+            if (ImGui::MenuItem(preset.name.c_str(), can_send ? "send" : "copy")) {
+                SendAndCopyPreset(preset);
             }
-            if (ImGui::MenuItem(preset.name.c_str())) {
-                RequestSendPreset(preset, true);
-            }
-            if (!can_send) {
-                ImGui::EndDisabled();
-            }
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+            if (ImGui::IsItemHovered()) {
                 ImGui::SetTooltip("%s", line.c_str());
             }
             ImGui::PopID();
@@ -477,57 +592,70 @@ void GWDashPlugin::DrawTradePresetButtons()
         return;
     }
 
-    if (!ImGui::BeginChild("trade_presets", ImVec2(0.0f, 140.0f), true)) {
-        ImGui::EndChild();
+    ImGui::SeparatorText("Trade presets");
+
+    // One action per preset: send once to trade chat and copy the line. Outside an
+    // outpost the same button only copies, so its label says so.
+    const bool can_send = gwdash::CanSendTradeChat();
+    const char* action_label = can_send ? "Send" : "Copy";
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const float action_width =
+        std::max(ImGui::CalcTextSize("Send").x, ImGui::CalcTextSize("Copy").x) +
+        style.FramePadding.x * 2.0f;
+
+    constexpr ImGuiTableFlags table_flags = ImGuiTableFlags_SizingFixedFit |
+                                            ImGuiTableFlags_NoSavedSettings |
+                                            ImGuiTableFlags_NoPadOuterX;
+    if (!ImGui::BeginTable("gwdash_presets", 3, table_flags)) {
         return;
     }
+    ImGui::TableSetupColumn("kind", ImGuiTableColumnFlags_WidthFixed);
+    ImGui::TableSetupColumn("name", ImGuiTableColumnFlags_WidthStretch);
+    ImGui::TableSetupColumn("action", ImGuiTableColumnFlags_WidthFixed, action_width);
 
-    const bool can_send = gwdash::CanSendTradeChat();
     for (const gwdash::TradePreset& preset : trade_presets_.List()) {
         ImGui::PushID(preset.name.c_str());
         const std::string line = gwdash::ComposeTradeLine(preset.kind, preset.message);
+        ImGui::TableNextRow();
 
+        ImGui::TableSetColumnIndex(0);
         ImGui::AlignTextToFramePadding();
-        ImGui::TextDisabled("[%s]", preset.kind.c_str());
-        ImGui::SameLine();
-        ImGui::TextUnformatted(preset.name.c_str());
+        ImGui::TextColored(KindColor(preset.kind), "%s", UpperKind(preset.kind).c_str());
+        TooltipIfHovered(line);
+
+        ImGui::TableSetColumnIndex(1);
+        ImGui::AlignTextToFramePadding();
         if (preset.is_default) {
-            ImGui::SameLine();
-            ImGui::TextDisabled("*");
+            ImGui::Text("%s *", preset.name.c_str());
+        } else {
+            ImGui::TextUnformatted(preset.name.c_str());
+        }
+        TooltipIfHovered(line);
+
+        ImGui::TableSetColumnIndex(2);
+        if (ImGui::Button(action_label, ImVec2(action_width, 0.0f))) {
+            SendAndCopyPreset(preset);
         }
         if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("%s", line.c_str());
-        }
-
-        ImGui::SameLine();
-        if (!can_send) {
-            ImGui::BeginDisabled();
-        }
-        if (ImGui::SmallButton("Send")) {
-            RequestSendPreset(preset, true);
-        }
-        if (!can_send) {
-            ImGui::EndDisabled();
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-                ImGui::SetTooltip("Trade chat is only available in an outpost.");
+            if (can_send) {
+                ImGui::SetTooltip("Send to trade chat and copy:\n%s", line.c_str());
+            } else {
+                ImGui::SetTooltip("Copy to clipboard (trade chat only works in an outpost):\n%s",
+                                  line.c_str());
             }
-        }
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Copy")) {
-            ImGui::SetClipboardText(line.c_str());
-            WriteChat("Copied trade preset to clipboard.");
         }
 
         ImGui::PopID();
     }
 
-    ImGui::EndChild();
+    ImGui::EndTable();
 }
 
 void GWDashPlugin::DrawTradePresetSettings()
 {
     ImGui::TextUnformatted("Trade presets");
-    ImGui::TextDisabled("Saved locally. Send is manual, outpost-only, with a 3s cooldown.");
+    ImGui::TextDisabled("Saved locally. Send posts one line to trade chat (outpost only, 3s");
+    ImGui::TextDisabled("cooldown) and copies it to the clipboard.");
     ImGui::Checkbox("Show presets on overlay", &show_trade_presets_);
 
     ImGui::InputInt("Send hotkey VK (0=off)", &send_hotkey_vk_);
@@ -651,12 +779,10 @@ void GWDashPlugin::DrawTradePresetSettings()
             gwdash::TradePreset pending = preset;
             pending.kind = KindLabel(draft.kind_index);
             pending.message = gwdash::SanitizePresetMessage(draft.message.data());
-            RequestSendPreset(pending, true);
+            SendAndCopyPreset(pending);
         }
-        ImGui::SameLine();
-        if (ImGui::Button("Copy")) {
-            ImGui::SetClipboardText(preview.c_str());
-            WriteChat("Copied trade preset to clipboard.");
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Send to trade chat (outpost only) and copy to the clipboard.");
         }
 
         if (ImGui::Button("Up")) {
@@ -765,7 +891,11 @@ void GWDashPlugin::Draw(IDirect3DDevice9*)
         }
 
         if (show_presets) {
-            ImGui::Separator();
+            if (compact_) {
+                ImGui::Separator();
+            } else {
+                ImGui::Spacing();
+            }
             DrawTradePresetButtons();
         }
 

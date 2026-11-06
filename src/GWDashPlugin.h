@@ -52,6 +52,8 @@ class GWDashPlugin final : public ToolboxUIPlugin {
     void PersistPresets();
     void RequestSendPreset(const gwdash::TradePreset& preset, bool confirm);
     void SendPreset(const gwdash::TradePreset& preset);
+    /** Overlay/Settings button: copy the line, then send it to trade chat if possible. */
+    void SendAndCopyPreset(const gwdash::TradePreset& preset);
     void SendPresetByName(const std::string& name);
     void PollSendHotkey();
 

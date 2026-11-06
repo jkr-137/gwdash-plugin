@@ -15,14 +15,14 @@ Toggle with `/gwdash`. Also: `/gwdash refresh`, `/gwdash prices`, `/gwdash updat
 - Three price rows matching the dashboard: `Ecto 5.6k`, `Arms 27e` / `27.4e`, `Black Dye 18.4k`
 - Compact single-line mode, adjustable font scale and background
 - Position and size remembered by Toolbox (drag the window)
-- Trade presets: save WTB / WTS / WTT lines locally and send one message to trade chat via the overlay, Settings, or `/gwdash send <name>` (manual only — no auto-repost)
+- Trade presets: save WTB / WTS / WTT lines locally; one **Send** button posts the line to trade chat once and copies it to the clipboard (manual only — no auto-repost)
 - Auto-update: a new release is downloaded in the background and activates the next time you start Guild Wars
 
 ## Requirements
 
 - Windows, 32-bit Guild Wars (the only kind that exists)
 - [GWToolbox++](https://www.gwtoolbox.com/) with the **Plugins** module enabled (Settings → *Enable the following features*)
-- Built and tested against Toolbox `8.32_Release`
+- Built against Toolbox `8.34_Release` (the plugin interface, ImGui `v1.92.7-docking` and the GWCA calls it uses are unchanged since `8.32_Release`)
 
 ## Manual install
 
@@ -55,9 +55,9 @@ If the CDN is unreachable, the plugin falls back to `https://gwdash.com/api/plug
 Under **Toolbox → Settings → Plugins → GWDash** you can add up to 12 named lines (`wtb` / `wts` / `wtt`). They are stored in `plugins/GWDash/presets.json` on your machine.
 
 - The chat line is **composed** as `kind` + message (unless the message already starts with `wtb`/`wts`/`wtt`). Preview is shown in Settings.
-- **Send** asks for confirmation from the overlay (and optional hotkey), then posts exactly one message to the in-game trade channel (`$`). Requires an **outpost**. There is a **3s** cooldown; nothing is sent on a timer or while AFK.
+- **Send** (overlay, presets menu, Settings) posts exactly one message to the in-game trade channel (`$`) and copies the same line to the clipboard, so you can paste it again with Ctrl+V. No confirm dialog. Requires an **outpost**; outside one the button reads **Copy** and only copies. There is a **3s** cooldown; nothing is sent on a timer or while AFK.
+- The optional send hotkey still asks for confirmation first, because it fires even while you are typing.
 - `/gwdash send <name>` sends without the confirm dialog (same cooldown / outpost rules).
-- **Copy** puts the composed line on the clipboard.
 - Import/Export JSON, reorder, duplicate, rename, and mark a default preset for the optional send hotkey (VK code in Settings; `0` = off).
 - Compact overlay mode shows a **Presets…** menu instead of the full list.
 - If `presets.json` fails to parse, saving is blocked until you **Reset presets**.
@@ -100,7 +100,7 @@ Outputs land in `bin/RelWithDebInfo/`:
 | `GWDash.core.dll` | Overlay, price client, updater |
 | `gwdash_tests.exe` | Pure unit tests (no GWCA) |
 
-The build pulls [GWToolbox++](https://github.com/gwdevhub/GWToolboxpp) at the pinned tag `8.32_Release` via FetchContent and reuses its ImGui (with Toolbox's `imconfig.h` — required, the struct layouts differ from stock ImGui), plugin base sources and prebuilt `gwca.lib`. It does **not** build `GWToolboxdll` itself.
+The build pulls [GWToolbox++](https://github.com/gwdevhub/GWToolboxpp) at the pinned tag `8.34_Release` via FetchContent and reuses its ImGui (with Toolbox's `imconfig.h` — required, the struct layouts differ from stock ImGui), plugin base sources and prebuilt `gwca.lib`. It does **not** build `GWToolboxdll` itself.
 
 ## Project layout
 
