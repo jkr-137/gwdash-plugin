@@ -18,6 +18,7 @@
 #include <GWCA/Managers/ChatMgr.h>
 #include <GWCA/Managers/MapMgr.h>
 #include <GWCA/Managers/MemoryMgr.h>
+#include <GWCA/Managers/UIMgr.h>
 #include <GWCA/Utilities/Hook.h>
 
 #include <PluginUtils.h>
@@ -347,6 +348,13 @@ void GWDashPlugin::SendAndCopyPreset(const gwdash::TradePreset& preset)
         return;
     }
 
+    if (send_via_chat_box_) {
+        if (!FillChatBox(line)) {
+            WriteChat("Could not open the chat box. Copied to clipboard instead.");
+        }
+        return;
+    }
+
     std::string error;
     if (trade_presets_.TrySend(preset, error)) {
         WriteChat("Sent to trade + copied: " + line);
@@ -354,6 +362,103 @@ void GWDashPlugin::SendAndCopyPreset(const gwdash::TradePreset& preset)
     }
     WriteChat((error.empty() ? std::string("Failed to send trade preset.") : error) +
               " Copied to clipboard instead.");
+}
+
+bool GWDashPlugin::FillChatBox(const std::string& line)
+{
+    // Same route GWToolbox's market window uses to pre-fill a whisper: open the chat
+    // box (unless the player is already typing) and append the text. The player
+    // posts it with Enter, so it goes through Guild Wars' own input and history.
+    std::wstring wide = PluginUtils::StringToWString(line);
+    if (!GW::Chat::GetIsTyping()) {
+        GW::UI::Keypress(GW::UI::ControlAction_OpenChat);
+    }
+    if (!GW::UI::SendUIMessage(GW::UI::UIMessage::kAppendMessageToChat, wide.data())) {
+        return false;
+    }
+    if (GW::Chat::GetCurrentChatChannel() != GW::Chat::CHANNEL_TRADE) {
+        WriteChat("Chat box is not on the trade channel - switch to trade ($) before Enter.");
+    }
+    return true;
+}
+
+GWDashPlugin::PresetEditDraft& GWDashPlugin::DraftFor(const gwdash::TradePreset& preset)
+{
+    auto [it, inserted] = preset_edit_drafts_.try_emplace(preset.name);
+    PresetEditDraft& draft = it->second;
+    if (inserted) {
+        draft.kind_index = KindIndex(preset.kind);
+        draft.rename.fill('\0');
+        draft.message.fill('\0');
+        strncpy_s(draft.rename.data(), draft.rename.size(), preset.name.c_str(), _TRUNCATE);
+        strncpy_s(draft.message.data(), draft.message.size(), preset.message.c_str(), _TRUNCATE);
+    }
+    return draft;
+}
+
+bool GWDashPlugin::SavePresetDraft(const gwdash::TradePreset& preset, PresetEditDraft& draft)
+{
+    // Copy the name: `preset` may point into the list that Rename() rewrites.
+    const std::string old_name = preset.name;
+    std::string error;
+    if (!trade_presets_.Upsert(old_name, KindLabel(draft.kind_index), draft.message.data(),
+                               error)) {
+        presets_ui_error_ = error;
+        return false;
+    }
+
+    const std::string new_name = gwdash::SanitizePresetName(draft.rename.data());
+    if (draft.rename[0] != '\0' && new_name != old_name) {
+        if (!trade_presets_.Rename(old_name, draft.rename.data(), error)) {
+            PersistPresets(); // kind/message were saved already
+            presets_ui_error_ = error;
+            return false;
+        }
+        preset_edit_drafts_.erase(old_name);
+        if (open_preset_editor_ == old_name) {
+            open_preset_editor_ = new_name;
+        }
+        if (overlay_editing_ == old_name) {
+            overlay_editing_ = new_name;
+        }
+    }
+
+    PersistPresets();
+    presets_ui_error_.clear();
+    return true;
+}
+
+bool GWDashPlugin::AddPresetFromDraft()
+{
+    std::string error;
+    if (!trade_presets_.Upsert(draft_name_.data(), KindLabel(draft_kind_index_),
+                               draft_message_.data(), error)) {
+        presets_ui_error_ = error;
+        return false;
+    }
+    PersistPresets();
+    draft_name_.fill('\0');
+    draft_message_.fill('\0');
+    draft_kind_index_ = 1;
+    presets_ui_error_.clear();
+    return true;
+}
+
+void GWDashPlugin::DeletePreset(const std::string& name)
+{
+    if (!trade_presets_.Remove(name)) {
+        return;
+    }
+    preset_edit_drafts_.erase(name);
+    if (open_preset_editor_ == name) {
+        open_preset_editor_.clear();
+    }
+    if (overlay_editing_ == name) {
+        overlay_editing_.clear();
+    }
+    overlay_delete_armed_.clear();
+    PersistPresets();
+    presets_ui_error_.clear();
 }
 
 void GWDashPlugin::SendPresetByName(const std::string& name)
@@ -566,6 +671,9 @@ void GWDashPlugin::DrawSendConfirmPopup()
 void GWDashPlugin::DrawTradePresetPopup()
 {
     if (ImGui::BeginPopup("gwdash_presets_popup")) {
+        if (trade_presets_.List().empty()) {
+            ImGui::TextDisabled("No presets yet. Add some in the full view or Settings.");
+        }
         const bool can_send = gwdash::CanSendTradeChat();
         for (const gwdash::TradePreset& preset : trade_presets_.List()) {
             ImGui::PushID(preset.name.c_str());
@@ -592,7 +700,20 @@ void GWDashPlugin::DrawTradePresetButtons()
         return;
     }
 
-    ImGui::SeparatorText("Trade presets");
+    DrawPresetsHeader();
+    if (overlay_adding_) {
+        DrawOverlayAddForm();
+    }
+    if (!presets_ui_error_.empty() && (overlay_adding_ || !overlay_editing_.empty())) {
+        ImGui::TextColored(COLOR_ERROR, "%s", presets_ui_error_.c_str());
+    }
+
+    // Copy: saving, renaming or deleting below rewrites the stored list.
+    const std::vector<gwdash::TradePreset> listed = trade_presets_.List();
+    if (listed.empty() && !overlay_adding_) {
+        ImGui::TextDisabled("No presets yet - click + to add one.");
+        return;
+    }
 
     // One action per preset: send once to trade chat and copy the line. Outside an
     // outpost the same button only copies, so its label says so.
@@ -603,19 +724,29 @@ void GWDashPlugin::DrawTradePresetButtons()
         std::max(ImGui::CalcTextSize("Send").x, ImGui::CalcTextSize("Copy").x) +
         style.FramePadding.x * 2.0f;
 
-    constexpr ImGuiTableFlags table_flags = ImGuiTableFlags_SizingFixedFit |
-                                            ImGuiTableFlags_NoSavedSettings |
-                                            ImGuiTableFlags_NoPadOuterX;
-    if (!ImGui::BeginTable("gwdash_presets", 3, table_flags)) {
-        return;
-    }
-    ImGui::TableSetupColumn("kind", ImGuiTableColumnFlags_WidthFixed);
-    ImGui::TableSetupColumn("name", ImGuiTableColumnFlags_WidthStretch);
-    ImGui::TableSetupColumn("action", ImGuiTableColumnFlags_WidthFixed, action_width);
+    // The table is closed around an open editor so the editor gets the full width;
+    // reopening it with the same ID keeps the columns in sync.
+    const auto begin_table = [&]() {
+        constexpr ImGuiTableFlags table_flags = ImGuiTableFlags_SizingFixedFit |
+                                                ImGuiTableFlags_NoSavedSettings |
+                                                ImGuiTableFlags_NoPadOuterX;
+        if (!ImGui::BeginTable("gwdash_presets", 3, table_flags)) {
+            return false;
+        }
+        ImGui::TableSetupColumn("kind", ImGuiTableColumnFlags_WidthFixed);
+        ImGui::TableSetupColumn("name", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn("action", ImGuiTableColumnFlags_WidthFixed, action_width);
+        return true;
+    };
 
-    for (const gwdash::TradePreset& preset : trade_presets_.List()) {
+    bool table_open = begin_table();
+    for (const gwdash::TradePreset& preset : listed) {
+        if (!table_open) {
+            break;
+        }
         ImGui::PushID(preset.name.c_str());
         const std::string line = gwdash::ComposeTradeLine(preset.kind, preset.message);
+        const bool editing = overlay_editing_ == preset.name;
         ImGui::TableNextRow();
 
         ImGui::TableSetColumnIndex(0);
@@ -624,31 +755,189 @@ void GWDashPlugin::DrawTradePresetButtons()
         TooltipIfHovered(line);
 
         ImGui::TableSetColumnIndex(1);
-        ImGui::AlignTextToFramePadding();
-        if (preset.is_default) {
-            ImGui::Text("%s *", preset.name.c_str());
-        } else {
-            ImGui::TextUnformatted(preset.name.c_str());
+        const std::string label = preset.is_default ? preset.name + " *" : preset.name;
+        ImGui::PushStyleVar(ImGuiStyleVar_SelectableTextAlign, ImVec2(0.0f, 0.5f));
+        if (ImGui::Selectable(label.c_str(), editing, ImGuiSelectableFlags_None,
+                              ImVec2(0.0f, ImGui::GetFrameHeight()))) {
+            if (editing) {
+                overlay_editing_.clear();
+            } else {
+                // Start from the stored values, not a stale Settings draft.
+                preset_edit_drafts_.erase(preset.name);
+                overlay_editing_ = preset.name;
+                overlay_adding_ = false;
+            }
+            presets_ui_error_.clear();
+            overlay_delete_armed_.clear();
         }
-        TooltipIfHovered(line);
+        ImGui::PopStyleVar();
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("%s\n(click to edit)", line.c_str());
+        }
 
         ImGui::TableSetColumnIndex(2);
         if (ImGui::Button(action_label, ImVec2(action_width, 0.0f))) {
             SendAndCopyPreset(preset);
         }
         if (ImGui::IsItemHovered()) {
-            if (can_send) {
-                ImGui::SetTooltip("Send to trade chat and copy:\n%s", line.c_str());
-            } else {
+            if (!can_send) {
                 ImGui::SetTooltip("Copy to clipboard (trade chat only works in an outpost):\n%s",
                                   line.c_str());
+            } else if (send_via_chat_box_) {
+                ImGui::SetTooltip("Put into the chat box (press Enter) and copy:\n%s",
+                                  line.c_str());
+            } else {
+                ImGui::SetTooltip("Send to trade chat and copy:\n%s", line.c_str());
             }
         }
 
+        if (editing) {
+            ImGui::EndTable();
+            DrawOverlayPresetEditor(preset);
+            table_open = begin_table();
+        }
         ImGui::PopID();
     }
+    if (table_open) {
+        ImGui::EndTable();
+    }
+}
 
-    ImGui::EndTable();
+void GWDashPlugin::DrawPresetsHeader()
+{
+    // "Trade presets ------------ [+]": a separator line with the add button on the right.
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const float button_size = ImGui::GetFrameHeight();
+
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted("Trade presets");
+    ImGui::SameLine();
+
+    const ImVec2 start = ImGui::GetCursorScreenPos();
+    const float line_width = ImGui::GetContentRegionAvail().x - button_size - style.ItemSpacing.x;
+    if (line_width > 0.0f) {
+        const float y = start.y + button_size * 0.5f;
+        ImGui::GetWindowDrawList()->AddLine(ImVec2(start.x, y), ImVec2(start.x + line_width, y),
+                                            ImGui::GetColorU32(ImGuiCol_Separator));
+        ImGui::Dummy(ImVec2(line_width, button_size));
+        ImGui::SameLine();
+    }
+
+    const bool full = trade_presets_.List().size() >= gwdash::MAX_TRADE_PRESETS;
+    const bool disabled = full && !overlay_adding_;
+    if (disabled) {
+        ImGui::BeginDisabled();
+    }
+    if (ImGui::Button(overlay_adding_ ? "x##add" : "+##add", ImVec2(button_size, button_size))) {
+        overlay_adding_ = !overlay_adding_;
+        overlay_editing_.clear();
+        overlay_delete_armed_.clear();
+        presets_ui_error_.clear();
+    }
+    if (disabled) {
+        ImGui::EndDisabled();
+    }
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+        if (full && !overlay_adding_) {
+            ImGui::SetTooltip("At most %zu presets.", gwdash::MAX_TRADE_PRESETS);
+        } else {
+            ImGui::SetTooltip("%s", overlay_adding_ ? "Cancel" : "Add a preset");
+        }
+    }
+}
+
+namespace {
+    // Kind combo + message on one line, name on the next: fits a narrow overlay.
+    void DrawPresetFields(int& kind_index, char* message, const size_t message_size, char* name,
+                          const size_t name_size)
+    {
+        const ImGuiStyle& style = ImGui::GetStyle();
+        const float combo_width =
+            ImGui::CalcTextSize("wtb").x + ImGui::GetFrameHeight() + style.FramePadding.x * 2.0f;
+        ImGui::SetNextItemWidth(combo_width);
+        ImGui::Combo("##kind", &kind_index, KIND_COMBO);
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        ImGui::InputTextWithHint("##message", "message, e.g. 27e arms", message, message_size);
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        ImGui::InputTextWithHint("##name", "name", name, name_size);
+        ImGui::TextDisabled("%s", gwdash::ComposeTradeLine(KindLabel(kind_index), message).c_str());
+    }
+} // namespace
+
+void GWDashPlugin::DrawOverlayAddForm()
+{
+    ImGui::PushID("gwdash_add_preset");
+    DrawPresetFields(draft_kind_index_, draft_message_.data(), draft_message_.size(),
+                     draft_name_.data(), draft_name_.size());
+    if (ImGui::Button("Add")) {
+        if (AddPresetFromDraft()) {
+            overlay_adding_ = false;
+        }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel")) {
+        overlay_adding_ = false;
+        presets_ui_error_.clear();
+    }
+    ImGui::PopID();
+    ImGui::Spacing();
+}
+
+void GWDashPlugin::DrawOverlayPresetEditor(const gwdash::TradePreset& preset)
+{
+    PresetEditDraft& draft = DraftFor(preset);
+    const std::string name = preset.name;
+
+    ImGui::Indent();
+    DrawPresetFields(draft.kind_index, draft.message.data(), draft.message.size(),
+                     draft.rename.data(), draft.rename.size());
+
+    if (ImGui::Button("Save")) {
+        if (SavePresetDraft(preset, draft)) {
+            overlay_editing_.clear();
+        }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel")) {
+        preset_edit_drafts_.erase(name);
+        overlay_editing_.clear();
+        overlay_delete_armed_.clear();
+        presets_ui_error_.clear();
+    }
+
+    // "-" deletes on a second click within 3s: no modal, but no one-click accident.
+    const bool armed =
+        overlay_delete_armed_ == name && ImGui::GetTime() < overlay_delete_armed_until_;
+    const char* delete_label = armed ? "Delete?" : "-";
+    const float delete_width =
+        armed ? ImGui::CalcTextSize(delete_label).x + ImGui::GetStyle().FramePadding.x * 2.0f
+              : ImGui::GetFrameHeight();
+    ImGui::SameLine();
+    const float avail = ImGui::GetContentRegionAvail().x;
+    if (avail > delete_width) {
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + avail - delete_width);
+    }
+    if (armed) {
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.65f, 0.2f, 0.2f, 1.0f));
+    }
+    if (ImGui::Button(delete_label, ImVec2(delete_width, 0.0f))) {
+        if (armed) {
+            DeletePreset(name);
+        } else {
+            overlay_delete_armed_ = name;
+            overlay_delete_armed_until_ = ImGui::GetTime() + 3.0;
+        }
+    }
+    if (armed) {
+        ImGui::PopStyleColor();
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("%s", armed ? "Click again to delete" : "Delete preset");
+    }
+
+    ImGui::Unindent();
+    ImGui::Spacing();
 }
 
 void GWDashPlugin::DrawTradePresetSettings()
@@ -657,6 +946,9 @@ void GWDashPlugin::DrawTradePresetSettings()
     ImGui::TextDisabled("Saved locally. Send posts one line to trade chat (outpost only, 3s");
     ImGui::TextDisabled("cooldown) and copies it to the clipboard.");
     ImGui::Checkbox("Show presets on overlay", &show_trade_presets_);
+    ImGui::Checkbox("Send via chat box (press Enter to post, keeps arrow-up history)",
+                    &send_via_chat_box_);
+    ImGui::TextDisabled("Experimental. Off: Send posts directly (not in the arrow-up history).");
 
     ImGui::InputInt("Send hotkey VK (0=off)", &send_hotkey_vk_);
     send_hotkey_vk_ = std::clamp(send_hotkey_vk_, 0, 255);
@@ -733,16 +1025,7 @@ void GWDashPlugin::DrawTradePresetSettings()
             open_preset_editor_ = preset.name;
         }
 
-        auto [it, inserted] = preset_edit_drafts_.try_emplace(preset.name);
-        PresetEditDraft& draft = it->second;
-        if (inserted) {
-            draft.kind_index = KindIndex(preset.kind);
-            draft.rename.fill('\0');
-            draft.message.fill('\0');
-            strncpy_s(draft.rename.data(), draft.rename.size(), preset.name.c_str(), _TRUNCATE);
-            strncpy_s(draft.message.data(), draft.message.size(), preset.message.c_str(),
-                      _TRUNCATE);
-        }
+        PresetEditDraft& draft = DraftFor(preset);
 
         ImGui::Combo("Kind", &draft.kind_index, KIND_COMBO);
         ImGui::InputText("Message", draft.message.data(), draft.message.size());
@@ -753,26 +1036,7 @@ void GWDashPlugin::DrawTradePresetSettings()
         ImGui::TextDisabled("Preview: %s", preview.c_str());
 
         if (ImGui::Button("Save")) {
-            std::string error;
-            if (trade_presets_.Upsert(preset.name, KindLabel(draft.kind_index),
-                                      draft.message.data(), error)) {
-                if (draft.rename[0] != '\0' &&
-                    gwdash::SanitizePresetName(draft.rename.data()) != preset.name) {
-                    if (!trade_presets_.Rename(preset.name, draft.rename.data(), error)) {
-                        presets_ui_error_ = error;
-                    } else {
-                        preset_edit_drafts_.erase(preset.name);
-                        open_preset_editor_ = gwdash::SanitizePresetName(draft.rename.data());
-                        PersistPresets();
-                        presets_ui_error_.clear();
-                    }
-                } else {
-                    PersistPresets();
-                    presets_ui_error_.clear();
-                }
-            } else {
-                presets_ui_error_ = error;
-            }
+            SavePresetDraft(preset, draft);
         }
         ImGui::SameLine();
         if (ImGui::Button("Send")) {
@@ -824,14 +1088,7 @@ void GWDashPlugin::DrawTradePresetSettings()
         }
         ImGui::SameLine();
         if (ImGui::Button("Delete")) {
-            if (trade_presets_.Remove(preset.name)) {
-                preset_edit_drafts_.erase(preset.name);
-                if (open_preset_editor_ == preset.name) {
-                    open_preset_editor_.clear();
-                }
-                PersistPresets();
-                presets_ui_error_.clear();
-            }
+            DeletePreset(preset.name);
         }
 
         ImGui::PopID();
@@ -850,17 +1107,7 @@ void GWDashPlugin::DrawTradePresetSettings()
     if (trade_presets_.List().size() >= gwdash::MAX_TRADE_PRESETS) {
         ImGui::TextDisabled("At most %zu presets.", gwdash::MAX_TRADE_PRESETS);
     } else if (ImGui::Button("Add")) {
-        std::string error;
-        if (trade_presets_.Upsert(draft_name_.data(), KindLabel(draft_kind_index_),
-                                  draft_message_.data(), error)) {
-            PersistPresets();
-            draft_name_.fill('\0');
-            draft_message_.fill('\0');
-            draft_kind_index_ = 1;
-            presets_ui_error_.clear();
-        } else {
-            presets_ui_error_ = error;
-        }
+        AddPresetFromDraft();
     }
 }
 
@@ -873,7 +1120,8 @@ void GWDashPlugin::Draw(IDirect3DDevice9*)
     ImGui::SetNextWindowSize(ImVec2(210.0f, 108.0f), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowBgAlpha(background_alpha_);
 
-    const bool show_presets = show_trade_presets_ && !trade_presets_.List().empty();
+    // Shown even when empty in the full view, so presets can be added with "+".
+    const bool show_presets = show_trade_presets_ && (!compact_ || !trade_presets_.List().empty());
     ImGuiWindowFlags flags = show_presets ? 0 : ImGuiWindowFlags_NoScrollbar;
 
     if (ImGui::Begin(Name(), show_closebutton ? GetVisiblePtr() : nullptr, GetWinFlags(flags))) {
@@ -986,6 +1234,7 @@ void GWDashPlugin::LoadSettings(const wchar_t* folder)
     LoadSetting("background_alpha", background_alpha_);
     LoadSetting("font_scale", font_scale_);
     LoadSetting("send_hotkey_vk", send_hotkey_vk_);
+    LoadSetting("send_via_chat_box", send_via_chat_box_);
 
     refresh_index_ = std::clamp(refresh_index_, 0, static_cast<int>(REFRESH_CHOICES.size()) - 1);
     background_alpha_ = std::clamp(background_alpha_, 0.0f, 1.0f);
@@ -1011,6 +1260,7 @@ void GWDashPlugin::SaveSettings(const wchar_t* folder)
     SaveSetting("background_alpha", background_alpha_);
     SaveSetting("font_scale", font_scale_);
     SaveSetting("send_hotkey_vk", send_hotkey_vk_);
+    SaveSetting("send_via_chat_box", send_via_chat_box_);
 
     ToolboxUIPlugin::SaveSettings(folder);
     PersistPresets();

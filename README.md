@@ -57,6 +57,8 @@ Under **Toolbox → Settings → Plugins → GWDash** you can add up to 12 named
 - The chat line is **composed** as `kind` + message (unless the message already starts with `wtb`/`wts`/`wtt`). Preview is shown in Settings.
 - **Send** (overlay, presets menu, Settings) posts exactly one message to the in-game trade channel (`$`) and copies the same line to the clipboard, so you can paste it again with Ctrl+V. No confirm dialog. Requires an **outpost**; outside one the button reads **Copy** and only copies. There is a **3s** cooldown; nothing is sent on a timer or while AFK.
 - The optional send hotkey still asks for confirmation first, because it fires even while you are typing.
+- **Send via chat box** (Settings, experimental, off by default): instead of posting directly, Send opens Guild Wars' own chat box and fills in the line. Press Enter to post it; because it went through the normal chat input it is in the arrow-up history afterwards. Make sure the chat box is on the trade channel (`$`) — the plugin warns if it is not. Direct sending does not land in the arrow-up history.
+- **Edit in the overlay:** `+` next to *Trade presets* adds a preset; click a preset's name to change kind, message and name inline; `-` deletes it (click twice within 3s).
 - `/gwdash send <name>` sends without the confirm dialog (same cooldown / outpost rules).
 - Import/Export JSON, reorder, duplicate, rename, and mark a default preset for the optional send hotkey (VK code in Settings; `0` = off).
 - Compact overlay mode shows a **Presets…** menu instead of the full list.
