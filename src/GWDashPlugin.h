@@ -75,6 +75,9 @@ class GWDashPlugin final : public ToolboxUIPlugin {
     float background_alpha_ = 0.75f;
     float font_scale_ = 1.0f;
     int send_hotkey_vk_ = 0; // 0 = disabled
+    // Put the line into Guild Wars' own chat box instead of sending it directly, so
+    // Enter posts it and it lands in the arrow-up history.
+    bool send_via_chat_box_ = false;
 
     struct PresetEditDraft {
         int kind_index = 1;
@@ -86,6 +89,21 @@ class GWDashPlugin final : public ToolboxUIPlugin {
     int draft_kind_index_ = 1; // wts
     std::array<char, gwdash::MAX_PRESET_MESSAGE_LEN + 1> draft_message_{};
     std::unordered_map<std::string, PresetEditDraft> preset_edit_drafts_;
+
+    PresetEditDraft& DraftFor(const gwdash::TradePreset& preset);
+    bool SavePresetDraft(const gwdash::TradePreset& preset, PresetEditDraft& draft);
+    bool AddPresetFromDraft();
+    void DeletePreset(const std::string& name);
+    bool FillChatBox(const std::string& line);
+    void DrawPresetsHeader();
+    void DrawOverlayAddForm();
+    void DrawOverlayPresetEditor(const gwdash::TradePreset& preset);
+
+    // Overlay editing state (separate from the Settings editor).
+    std::string overlay_editing_;
+    bool overlay_adding_ = false;
+    std::string overlay_delete_armed_;
+    double overlay_delete_armed_until_ = 0.0;
     std::string presets_ui_error_;
     std::string open_preset_editor_;
     std::string pending_send_name_;
