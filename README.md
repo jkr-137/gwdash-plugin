@@ -1,30 +1,121 @@
+<div align="center">
+
 # GWDash plugin for GWToolbox++
 
-In-game overlay for the three prices [GWDash](https://gwdash.com) tracks: **Ectoplasm**, **Armbrace of Truth** and **Black Dye**. Freely movable, updates itself, installs with one line.
+**Live Ecto, Armbrace and Black Dye prices inside Guild Wars, plus one-click trade presets.**
 
-```powershell
-irm https://gwdash.com/install.ps1 | iex
-```
+[![Latest release](https://img.shields.io/github/v/release/jkr-137/gwdash-plugin?label=release&color=2f6feb)](https://github.com/jkr-137/gwdash-plugin/releases/latest)
+[![Build](https://img.shields.io/github/actions/workflow/status/jkr-137/gwdash-plugin/build.yml?branch=main&label=build)](https://github.com/jkr-137/gwdash-plugin/actions/workflows/build.yml)
+[![Downloads](https://img.shields.io/github/downloads/jkr-137/gwdash-plugin/total?color=success)](https://github.com/jkr-137/gwdash-plugin/releases)
+[![GWToolbox++](https://img.shields.io/badge/GWToolbox%2B%2B-8.34-8a63d2)](https://www.gwtoolbox.com/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
 
-Then start Guild Wars. If the overlay does not appear, enable it once under **Toolbox → Settings → Plugins → GWDash.dll → Load**.
+<img src="docs/images/overlay.png" alt="GWDash overlay in Guild Wars: Ecto, Armbrace and Black Dye prices above a list of trade presets with Send buttons" width="760">
 
-Toggle with `/gwdash`. Also: `/gwdash refresh`, `/gwdash prices`, `/gwdash update`, `/gwdash version`, `/gwdash presets`, `/gwdash send <name>`.
+<sub>Prices come from <a href="https://gwdash.com">gwdash.com</a> and refresh every two minutes.</sub>
+
+</div>
+
+## Install in 2 minutes
+
+You need [GWToolbox++](https://www.gwtoolbox.com/) already working in Guild Wars. That's all.
+
+1. **Close Guild Wars.**
+2. **Open Windows PowerShell:** press the <kbd>Windows</kbd> key, type `PowerShell` and click **Windows PowerShell**.
+   > ⚠️ It has to be **PowerShell**. The black *Command Prompt* (`cmd`) does not understand this line and shows *"'irm' is not recognized…"*.
+3. **Paste this line and press <kbd>Enter</kbd>:**
+
+   ```powershell
+   irm https://gwdash.com/install.ps1 | iex
+   ```
+
+   Copy it with the button on the right of the box, then right-click inside PowerShell (or press <kbd>Ctrl</kbd>+<kbd>V</kbd>) to paste.
+
+   <img src="docs/images/install-powershell.png" alt="Windows PowerShell window with the GWDash install command typed in" width="640">
+
+4. **Start Guild Wars.** The GWDash window shows up on its own. If it doesn't, enable it once under **Toolbox → Settings → Plugins → GWDash.dll → Load**.
+
+No admin rights needed. The script downloads the plugin from this repository's [releases](https://github.com/jkr-137/gwdash-plugin/releases/latest) into your Toolbox `plugins` folder and switches it on in Toolbox's plugin list. Nothing else on your PC is touched ([read the script](https://gwdash.com/install.ps1)).
+
+**Updating:** nothing to do. New versions download in the background and activate the next time you start Guild Wars.
 
 ## What you get
 
-- Three price rows matching the dashboard: `Ecto 5.6k`, `Arms 27e` / `27.4e`, `Black Dye 18.4k`
-- Compact single-line mode, adjustable font scale and background
-- Position and size remembered by Toolbox (drag the window)
-- Trade presets: save WTB / WTS / WTT lines locally; one **Send** button posts the line to trade chat once and copies it to the clipboard (manual only — no auto-repost)
-- Auto-update: a new release is downloaded in the background and activates the next time you start Guild Wars
+| | |
+|---|---|
+| 💰 **Live prices** | Ecto (NPC trader), Armbrace of Truth and Black Dye from trade chat, the same values as [gwdash.com](https://gwdash.com). Old prices turn yellow. |
+| 📣 **Trade presets** | Save up to 12 `WTB` / `WTS` / `WTT` lines. **Send** posts one to trade chat and copies it to the clipboard. |
+| ✏️ **Edit in place** | `+` adds a preset, click a name to change it, `−` deletes it, right in the overlay. |
+| 🔄 **Auto-update** | Signed releases install themselves on the next game start. |
+| 🪟 **Your layout** | Drag and resize the window, single-line mode, font size and background opacity. |
 
-## Requirements
+<div align="center">
+<img src="docs/images/overlay-edit.png" alt="Editing a trade preset directly in the overlay: kind, message and name fields with Save, Cancel and delete" width="640">
+</div>
 
-- Windows, 32-bit Guild Wars (the only kind that exists)
-- [GWToolbox++](https://www.gwtoolbox.com/) with the **Plugins** module enabled (Settings → *Enable the following features*)
-- Built against Toolbox `8.34_Release` (the plugin interface, ImGui `v1.92.7-docking` and the GWCA calls it uses are unchanged since `8.32_Release`)
+## Using it
 
-## Manual install
+### Trade presets
+
+- **Add:** click **+** next to *Trade presets*, pick `wtb` / `wts` / `wtt`, type the message and a short name, **Add**.
+- **Edit:** click a preset's name to change kind, message or name, then **Save**.
+- **Delete:** open it and click **−** twice (the second click within 3 seconds confirms).
+- **Send:** posts the line to trade chat once and copies it to the clipboard, so <kbd>Ctrl</kbd>+<kbd>V</kbd> pastes it again. Works in outposts; elsewhere the button says **Copy** and only copies. There is a 3-second cooldown.
+- **Want it in the arrow-up history?** Turn on **Send via chat box** under *Settings → Plugins → GWDash*. Send then fills Guild Wars' own chat box and you press <kbd>Enter</kbd>; afterwards <kbd>↑</kbd> brings the line back. Keep the chat box on the trade channel (`$`).
+
+Presets are stored on your PC in `plugins/GWDash/presets.json`. Settings also has import/export, reorder, duplicate and a default preset for an optional hotkey.
+
+### Chat commands
+
+| Command | Does |
+|---|---|
+| `/gwdash` | Show or hide the overlay |
+| `/gwdash prices` | Print the current prices to chat |
+| `/gwdash refresh` | Fetch prices now |
+| `/gwdash presets` | List your presets |
+| `/gwdash send <name>` | Send a preset by name |
+| `/gwdash update` · `/gwdash version` | Check for updates · show the version |
+
+## Troubleshooting
+
+<details>
+<summary><b>"'irm' is not recognized as an internal or external command"</b></summary>
+
+You are in the Command Prompt (`cmd`). Close it, open **Windows PowerShell** instead (step 2 above) and paste the line again.
+</details>
+
+<details>
+<summary><b>The overlay doesn't appear</b></summary>
+
+- In Toolbox go to **Settings → Plugins** and click **Load** next to `GWDash.dll`.
+- Make sure the *Plugins* feature is enabled in Toolbox (**Settings → Enable the following features**).
+- Type `/gwdash` in chat: the window may just be hidden.
+</details>
+
+<details>
+<summary><b>Windows Defender blocked or deleted the DLL</b></summary>
+
+The DLL is not code-signed yet, and Defender sometimes quarantines unsigned Toolbox plugins. Allow the file in *Windows Security → Protection history*, then run the install line again.
+</details>
+
+<details>
+<summary><b>The Send button says "Copy"</b></summary>
+
+Trade chat only works in outposts. Outside one the button copies the line so you can paste it later.
+</details>
+
+<details>
+<summary><b>Uninstall</b></summary>
+
+Run this in Windows PowerShell:
+
+```powershell
+iex "& { $(irm https://gwdash.com/install.ps1) } -Uninstall"
+```
+</details>
+
+<details>
+<summary><b>Manual install (without the script)</b></summary>
 
 1. Download `GWDash.dll` and `GWDash.core.dll` from the [latest release](https://github.com/jkr-137/gwdash-plugin/releases/latest).
 2. Put them here:
@@ -35,34 +126,11 @@ Toggle with `/gwdash`. Also: `/gwdash refresh`, `/gwdash prices`, `/gwdash updat
    ```
 
    `scripts/open-plugins-folder.bat` opens that folder for you.
-3. Close Guild Wars first if it is running — Windows locks a loaded DLL.
+3. Close Guild Wars first if it is running (Windows locks a loaded DLL).
 4. Start the game, then **Settings → Plugins → Load**.
+</details>
 
-Uninstall:
-
-```powershell
-iex "& { $(irm https://gwdash.com/install.ps1) } -Uninstall"
-```
-
-## Where the prices come from
-
-The plugin polls a static JSON snapshot at `https://data.gwdash.com/prices.json`. That file is written by the GWDash Cloudflare Worker every two minutes into a public R2 bucket and served from Cloudflare's CDN. The request never hits a Worker and never touches D1, so plugin traffic does not consume the free-tier request budget.
-
-If the CDN is unreachable, the plugin falls back to `https://gwdash.com/api/plugin/prices` (edge-cached, ETag).
-
-## Trade presets
-
-Under **Toolbox → Settings → Plugins → GWDash** you can add up to 12 named lines (`wtb` / `wts` / `wtt`). They are stored in `plugins/GWDash/presets.json` on your machine.
-
-- The chat line is **composed** as `kind` + message (unless the message already starts with `wtb`/`wts`/`wtt`). Preview is shown in Settings.
-- **Send** (overlay, presets menu, Settings) posts exactly one message to the in-game trade channel (`$`) and copies the same line to the clipboard, so you can paste it again with Ctrl+V. No confirm dialog. Requires an **outpost**; outside one the button reads **Copy** and only copies. There is a **3s** cooldown; nothing is sent on a timer or while AFK.
-- The optional send hotkey still asks for confirmation first, because it fires even while you are typing.
-- **Send via chat box** (Settings, experimental, off by default): instead of posting directly, Send opens Guild Wars' own chat box and fills in the line. Press Enter to post it; because it went through the normal chat input it is in the arrow-up history afterwards. Make sure the chat box is on the trade channel (`$`) — the plugin warns if it is not. Direct sending does not land in the arrow-up history.
-- **Edit in the overlay:** `+` next to *Trade presets* adds a preset; click a preset's name to change kind, message and name inline; `-` deletes it (click twice within 3s).
-- `/gwdash send <name>` sends without the confirm dialog (same cooldown / outpost rules).
-- Import/Export JSON, reorder, duplicate, rename, and mark a default preset for the optional send hotkey (VK code in Settings; `0` = off).
-- Compact overlay mode shows a **Presets…** menu instead of the full list.
-- If `presets.json` fails to parse, saving is blocked until you **Reset presets**.
+Still stuck? [Open an issue](https://github.com/jkr-137/gwdash-plugin/issues/new/choose).
 
 ## Safety notes
 
@@ -71,7 +139,31 @@ Under **Toolbox → Settings → Plugins → GWDash** you can add up to 12 named
 - The DLL is currently **unsigned** (Authenticode). Windows Defender occasionally quarantines unsigned Toolbox plugins — if Load fails with a virus error, allow the file and try again.
 - While any plugin is loaded, Toolbox refuses to write a crash dump. Do not report Toolbox crashes that happen with GWDash loaded.
 
-## Auto-update
+---
+
+## For developers
+
+### Requirements
+
+- Windows, 32-bit Guild Wars
+- [GWToolbox++](https://www.gwtoolbox.com/) with the **Plugins** module enabled
+- Built against Toolbox `8.34_Release` (the plugin interface, ImGui `v1.92.7-docking` and the GWCA calls it uses are unchanged since `8.32_Release`)
+
+### Where the prices come from
+
+The plugin polls a static JSON snapshot at `https://data.gwdash.com/prices.json`. That file is written by the GWDash Cloudflare Worker every two minutes into a public R2 bucket and served from Cloudflare's CDN. The request never hits a Worker and never touches D1, so plugin traffic does not consume the free-tier request budget.
+
+If the CDN is unreachable, the plugin falls back to `https://gwdash.com/api/plugin/prices` (edge-cached, ETag).
+
+### How Send works
+
+- The chat line is composed as `kind` + message (unless the message already starts with `wtb`/`wts`/`wtt`).
+- Direct mode calls `GW::Chat::SendChat('$', ...)` once (outpost only, 3s cooldown) and copies the line. It bypasses the chat input, so it does not reach the arrow-up history.
+- *Send via chat box* opens the chat input (`Keypress(ControlAction_OpenChat)` unless already typing) and appends the line with `kAppendMessageToChat`; the player posts it with Enter.
+- The optional send hotkey asks for confirmation, because it fires even while typing. `/gwdash send <name>` sends without a dialog.
+- If `presets.json` fails to parse, saving is blocked until you **Reset presets**.
+
+### Auto-update
 
 `GWDash.dll` is a tiny loader. The real plugin lives one directory down as `GWDash.core.dll`. On start the loader swaps in anything waiting in `GWDash/pending/`, then forwards to the payload. That is how a new version can install itself without fighting the Windows file lock on the DLL Toolbox has loaded.
 
@@ -83,7 +175,7 @@ Each release ships `manifest.json` + `manifest.sig` (ed25519). The plugin verifi
 
 The loader itself cannot be replaced this way. When a release also changes the loader, the overlay asks you to re-run the installer once.
 
-## Building from source
+### Building from source
 
 Needs Visual Studio 2022 (toolset v143+) with the **Desktop development with C++** workload, CMake ≥ 3.29, and [vcpkg](https://vcpkg.io).
 
@@ -104,7 +196,7 @@ Outputs land in `bin/RelWithDebInfo/`:
 
 The build pulls [GWToolbox++](https://github.com/gwdevhub/GWToolboxpp) at the pinned tag `8.34_Release` via FetchContent and reuses its ImGui (with Toolbox's `imconfig.h` — required, the struct layouts differ from stock ImGui), plugin base sources and prebuilt `gwca.lib`. It does **not** build `GWToolboxdll` itself.
 
-## Project layout
+### Project layout
 
 ```
 cmake/ToolboxSdk.cmake   FetchContent + plugin_base stand-in
