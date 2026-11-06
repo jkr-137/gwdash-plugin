@@ -1,0 +1,42 @@
+name: Bug report
+description: Something in the GWDash plugin does not work
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Please check the [Troubleshooting](https://github.com/jkr-137/gwdash-plugin#troubleshooting) section first.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, what happened instead? Screenshots help a lot.
+    validations:
+      required: true
+  - type: input
+    id: plugin-version
+    attributes:
+      label: GWDash version
+      description: Type `/gwdash version` in the game chat.
+      placeholder: "0.4.0"
+    validations:
+      required: true
+  - type: input
+    id: toolbox-version
+    attributes:
+      label: GWToolbox++ version
+      placeholder: "8.34"
+  - type: dropdown
+    id: install
+    attributes:
+      label: How did you install it?
+      options:
+        - PowerShell one-liner (irm https://gwdash.com/install.ps1 | iex)
+        - Manual download from Releases
+        - Built from source
+  - type: textarea
+    id: logs
+    attributes:
+      label: Messages in chat or PowerShell
+      description: Paste any GWDash messages from the game chat or the installer output.
+      render: text

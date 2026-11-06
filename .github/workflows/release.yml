@@ -65,9 +65,15 @@ jobs:
 
             ## Install / update
 
+            Already installed? Nothing to do: the plugin updates itself the next time you start Guild Wars.
+
+            New install: press the Windows key, type `PowerShell`, open **Windows PowerShell** (not Command Prompt / cmd), paste this line and press Enter:
+
             ```powershell
             irm https://gwdash.com/install.ps1 | iex
             ```
+
+            Step-by-step guide with pictures: https://github.com/jkr-137/gwdash-plugin#install-in-2-minutes
 
             Or drop `GWDash.dll` into `%USERPROFILE%\Documents\GWToolboxpp\<COMPUTERNAME>\plugins\` and `GWDash.core.dll` into a `GWDash\` subfolder, then enable the plugin under Settings → Plugins.
 

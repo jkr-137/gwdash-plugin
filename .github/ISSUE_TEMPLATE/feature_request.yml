@@ -1,0 +1,11 @@
+name: Feature idea
+description: Suggest something that would make GWDash more useful
+labels: [enhancement]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: Your idea
+      description: What would you like the overlay to do, and in which situation would it help?
+    validations:
+      required: true
