@@ -10,7 +10,7 @@
 [![GWToolbox++](https://img.shields.io/badge/GWToolbox%2B%2B-8.34-8a63d2)](https://www.gwtoolbox.com/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
 
-<img src="docs/images/overlay.png" alt="GWDash overlay in Guild Wars: Ecto, Armbrace and Black Dye prices above a list of trade presets with Send buttons" width="760">
+<img src="docs/images/overlay.png" alt="GWDash overlay in Guild Wars: Ecto, Armbrace and Black Dye prices above a list of trade presets with Send buttons" width="456">
 
 <sub>Prices come from <a href="https://gwdash.com">gwdash.com</a> and refresh every two minutes.</sub>
 
@@ -50,7 +50,7 @@ No admin rights needed. The script downloads the plugin from this repository's [
 | 🪟 **Your layout** | Drag and resize the window, single-line mode, font size and background opacity. |
 
 <div align="center">
-<img src="docs/images/overlay-edit.png" alt="Editing a trade preset directly in the overlay: kind, message and name fields with Save, Cancel and delete" width="640">
+<img src="docs/images/overlay-edit.png" alt="Editing a trade preset directly in the overlay: kind, message and name fields with Save, Cancel and delete" width="456">
 </div>
 
 ## Using it
